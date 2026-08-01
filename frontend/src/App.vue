@@ -1,6 +1,6 @@
 <template>
   <NavBar v-if="auth.isAuthenticated && auth.user" />
-  <main class="container-fluid py-4">
+  <main class="container-xxl py-4">
     <router-view />
   </main>
 </template>

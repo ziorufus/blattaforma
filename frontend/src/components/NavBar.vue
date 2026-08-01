@@ -1,6 +1,6 @@
 <template>
   <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-    <div class="container-fluid">
+    <div class="container-xxl">
       <router-link class="navbar-brand" to="/" @click="closeAll">Blattaforma</router-link>
       <button class="navbar-toggler" type="button" @click="navOpen = !navOpen">
         <span class="navbar-toggler-icon"></span>
