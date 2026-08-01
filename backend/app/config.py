@@ -17,9 +17,14 @@ class Settings(BaseSettings):
     base_url: str = "http://localhost:8000"
     frontend_url: str = "http://localhost:5173"
 
-    database_url: str = f"sqlite:///{BASE_DIR / 'blattaforma.db'}"
+    db_path: str = ""
 
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", case_sensitive=False)
+
+    @property
+    def database_url(self) -> str:
+        path = self.db_path or str(BASE_DIR / "blattaforma.db")
+        return f"sqlite:///{path}"
 
 
 settings = Settings()
