@@ -137,7 +137,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '../../api/axios'
 import { useAuthStore } from '../../stores/auth'
 
@@ -153,9 +153,12 @@ const canPull = computed(() => {
   return !!mod && mod.granted_roles.includes('models')
 })
 
+const AUTO_REFRESH_INTERVAL_MS = 15000
+
 const machines = ref([])
 const loading = ref(true)
 const errorMessage = ref('')
+let autoRefreshTimer = null
 
 const writableMachines = computed(() => (canPull.value ? machines.value.filter((m) => m.has_write_key) : []))
 
@@ -303,5 +306,16 @@ async function pullModel(m) {
   }
 }
 
-onMounted(loadMachines)
+async function refreshAll() {
+  await Promise.all(machines.value.map((m) => fetchStatus(m)))
+}
+
+onMounted(async () => {
+  await loadMachines()
+  autoRefreshTimer = setInterval(refreshAll, AUTO_REFRESH_INTERVAL_MS)
+})
+
+onUnmounted(() => {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer)
+})
 </script>
