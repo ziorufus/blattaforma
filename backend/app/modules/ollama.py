@@ -74,7 +74,7 @@ class MachineOut(BaseModel):
     has_write_key: bool
 
 
-class LoadedModel(BaseModel):
+class ModelInfo(BaseModel):
     name: str
     size_bytes: int
 
@@ -88,8 +88,8 @@ class MachineStatusOut(BaseModel):
     total_bytes: int | None = None
     available_bytes: int | None = None
     ollama_bytes: int = 0
-    loaded_models: list[LoadedModel] = []
-    available_models: list[str] = []
+    loaded_models: list[ModelInfo] = []
+    available_models: list[ModelInfo] = []
     error: str | None = None
 
 
@@ -259,7 +259,7 @@ async def machine_status(
             resp.raise_for_status()
             data = resp.json()
             out.loaded_models = [
-                LoadedModel(name=m.get("name") or m.get("model"), size_bytes=m.get("size") or 0)
+                ModelInfo(name=m.get("name") or m.get("model"), size_bytes=m.get("size") or 0)
                 for m in data.get("models", [])
             ]
             out.ollama_bytes = sum(m.size_bytes for m in out.loaded_models)
@@ -273,7 +273,10 @@ async def machine_status(
             )
             resp.raise_for_status()
             data = resp.json()
-            out.available_models = [m.get("name") or m.get("model") for m in data.get("models", [])]
+            out.available_models = [
+                ModelInfo(name=m.get("name") or m.get("model"), size_bytes=m.get("size") or 0)
+                for m in data.get("models", [])
+            ]
         except Exception:
             errors.append("Ollama (list) non raggiungibile")
 

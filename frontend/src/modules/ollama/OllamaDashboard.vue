@@ -60,7 +60,9 @@
               <div class="input-group input-group-sm">
                 <select v-model="m.selectedModel" class="form-select" :disabled="m.loadingModel">
                   <option value="">[Seleziona il modello]</option>
-                  <option v-for="name in m.available_models" :key="name" :value="name">{{ name }}</option>
+                  <option v-for="am in m.available_models" :key="am.name" :value="am.name">
+                    {{ am.name }} ({{ formatBytes(am.size_bytes) }})
+                  </option>
                 </select>
                 <button
                   class="btn btn-primary"
