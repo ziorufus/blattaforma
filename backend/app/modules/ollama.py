@@ -88,6 +88,9 @@ class MachineStatusOut(BaseModel):
     total_bytes: int | None = None
     available_bytes: int | None = None
     ollama_bytes: int = 0
+    gpu_percent: float | None = None
+    gpu_temp_celsius: float | None = None
+    gpu_power_watts: float | None = None
     loaded_models: list[ModelInfo] = []
     available_models: list[ModelInfo] = []
     error: str | None = None
@@ -161,6 +164,22 @@ def _parse_memory(metrics_text: str, os_name: str) -> tuple[int | None, int | No
         available = _prom_value(metrics_text, "node_memory_MemAvailable_bytes")
 
     return (int(total) if total is not None else None, int(available) if available is not None else None)
+
+
+def _parse_gpu(metrics_text: str, os_name: str) -> tuple[float | None, float | None, float | None]:
+    """Returns (gpu_percent, gpu_temp_celsius, gpu_power_watts) from a node_exporter /metrics dump."""
+    if os_name == "macos":
+        percent = _prom_value(metrics_text, "mac_gpu_usage_percent")
+        temp = _prom_value(metrics_text, "mac_cpu_temperature_celsius")
+        power_mw = _prom_value(metrics_text, "mac_gpu_power")
+        power = power_mw / 1000 if power_mw is not None else None
+    else:
+        ratio = _prom_value(metrics_text, "gpu_utilization_ratio")
+        percent = ratio * 100 if ratio is not None else None
+        temp = _prom_value(metrics_text, "gpu_temperature_celsius")
+        power = _prom_value(metrics_text, "gpu_power_watts")
+
+    return percent, temp, power
 
 
 # ---------- Machines CRUD (role: machines) ----------
@@ -248,6 +267,7 @@ async def machine_status(
             resp = await client.get(f"http://{machine.ip_address}:{NODE_EXPORTER_PORT}/metrics")
             resp.raise_for_status()
             out.total_bytes, out.available_bytes = _parse_memory(resp.text, machine.os)
+            out.gpu_percent, out.gpu_temp_celsius, out.gpu_power_watts = _parse_gpu(resp.text, machine.os)
         except Exception:
             errors.append("node_exporter non raggiungibile")
 

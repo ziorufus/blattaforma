@@ -15,7 +15,7 @@
         <thead>
           <tr>
             <th>Macchina</th>
-            <th style="min-width: 240px">Memoria</th>
+            <th style="min-width: 240px">Utilizzo</th>
             <th>Modelli in RAM</th>
             <th style="min-width: 260px">Carica un modello</th>
             <th></th>
@@ -47,6 +47,20 @@
                 </div>
               </template>
               <span v-else class="text-muted small">N/D</span>
+
+              <template v-if="m.gpu_percent != null">
+                <div class="progress mt-2" style="height: 18px">
+                  <div
+                    class="progress-bar bg-primary"
+                    :style="{ width: m.gpu_percent + '%' }"
+                    :title="`GPU: ${formatPercent(m.gpu_percent)}`"
+                  ></div>
+                </div>
+                <div class="text-muted small mt-1">
+                  GPU {{ formatPercent(m.gpu_percent) }} · {{ formatTemp(m.gpu_temp_celsius) }} ·
+                  {{ formatPower(m.gpu_power_watts) }}
+                </div>
+              </template>
             </td>
             <td>
               <span
@@ -178,6 +192,21 @@ function otherPct(m) {
 
 function ollamaPct(m) {
   return m.total_bytes ? ((m.ollama_bytes || 0) / m.total_bytes) * 100 : 0
+}
+
+function formatPercent(v) {
+  if (v === null || v === undefined) return '-'
+  return `${Math.round(v)}%`
+}
+
+function formatTemp(v) {
+  if (v === null || v === undefined) return '-'
+  return `${v.toFixed(1)} °C`
+}
+
+function formatPower(v) {
+  if (v === null || v === undefined) return '-'
+  return `${v.toFixed(1)} W`
 }
 
 async function fetchStatus(machine) {
