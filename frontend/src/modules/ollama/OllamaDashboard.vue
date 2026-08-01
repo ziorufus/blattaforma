@@ -43,7 +43,7 @@
                 </div>
                 <div class="text-muted small mt-1">
                   {{ formatBytes(otherBytes(m)) }} altro + {{ formatBytes(m.ollama_bytes) }} ollama /
-                  {{ formatBytes(m.total_bytes) }}
+                  {{ formatBytes(m.total_bytes) }} ({{ formatBytes(m.available_bytes) }} libera)
                 </div>
               </template>
               <span v-else class="text-muted small">N/D</span>
