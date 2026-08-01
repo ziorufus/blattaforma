@@ -49,8 +49,23 @@
               <span v-else class="text-muted small">N/D</span>
             </td>
             <td>
-              <span v-for="lm in m.loaded_models" :key="lm.name" class="badge text-bg-info me-1 mb-1">
+              <span
+                v-for="lm in m.loaded_models"
+                :key="lm.name"
+                class="badge text-bg-info me-1 mb-1 d-inline-flex align-items-center"
+              >
                 {{ lm.name }} ({{ formatBytes(lm.size_bytes) }})
+                <button
+                  type="button"
+                  class="btn btn-sm btn-link text-white p-0 ms-1"
+                  style="line-height: 1"
+                  title="Espelli dalla RAM"
+                  :disabled="m.unloadingModel === lm.name"
+                  @click="unloadModel(m, lm.name)"
+                >
+                  <span v-if="m.unloadingModel === lm.name" class="spinner-border spinner-border-sm"></span>
+                  <i v-else class="bi bi-trash"></i>
+                </button>
               </span>
               <span v-if="!m.loaded_models || m.loaded_models.length === 0" class="text-muted small">
                 Nessuno
@@ -180,6 +195,7 @@ async function loadMachines() {
       ...m,
       selectedModel: '',
       loadingModel: false,
+      unloadingModel: null,
       refreshing: false,
       pullModel: '',
       pulling: false,
@@ -215,6 +231,19 @@ async function loadModel(m) {
     m.error = e.response?.data?.detail || 'Impossibile caricare il modello.'
   } finally {
     m.loadingModel = false
+  }
+}
+
+async function unloadModel(m, modelName) {
+  m.unloadingModel = modelName
+  m.error = ''
+  try {
+    await api.post(`/api/modules/ollama/machines/${m.id}/unload`, { model: modelName })
+    await fetchStatus(m)
+  } catch (e) {
+    m.error = e.response?.data?.detail || 'Impossibile espellere il modello.'
+  } finally {
+    m.unloadingModel = null
   }
 }
 

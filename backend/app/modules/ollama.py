@@ -311,6 +311,32 @@ async def load_model(
     return {"status": "ok"}
 
 
+# ---------- Unload a model from RAM (any granted role) ----------
+
+
+@router.post("/machines/{machine_id}/unload")
+async def unload_model(
+    machine_id: int,
+    payload: LoadModelRequest,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    db: Session = Depends(get_db),
+):
+    machine = _get_machine_or_404(db, machine_id)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
+                json={"model": payload.model, "keep_alive": 0, "stream": False},
+                headers=_auth_header(machine.api_key_read),
+            )
+            resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Impossibile espellere il modello: {exc}"
+        ) from exc
+    return {"status": "ok"}
+
+
 # ---------- Pull a new model (role: models) ----------
 
 
