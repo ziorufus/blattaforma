@@ -1,7 +1,10 @@
 <template>
   <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container-xxl">
-      <router-link class="navbar-brand" to="/" @click="closeAll">Blattaforma</router-link>
+      <router-link class="navbar-brand d-flex align-items-center" to="/" @click="closeAll">
+        <img src="/blattaforma-logo.png" alt="Blattaforma" height="32" class="me-2" />
+        Blattaforma
+      </router-link>
       <button class="navbar-toggler" type="button" @click="navOpen = !navOpen">
         <span class="navbar-toggler-icon"></span>
       </button>
@@ -126,3 +129,9 @@ function doLogout() {
   router.push({ name: 'login' })
 }
 </script>
+
+<style scoped>
+.bg-dark {
+  background-color: #020A10 !important;
+}
+</style>
