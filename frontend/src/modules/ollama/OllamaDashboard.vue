@@ -2,9 +2,37 @@
   <div>
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h1 class="mb-0">Ollama</h1>
+      <div class="d-flex gap-2">
+        <div class="dropdown">
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            data-bs-toggle="dropdown"
+            id="dropdown-info"
+          >
+            <i class="bi bi-info-circle me-1"></i>
+            Informazioni modello
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdown-info">
+            <li v-for="model in allAvailableModels" :key="model">
+              <a
+                class="dropdown-item"
+                :href="`https://ollama.com/library/${model}`"
+                target="_blank"
+                rel="noopener"
+              >
+                {{ model }}
+              </a>
+            </li>
+            <li v-if="allAvailableModels.length === 0">
+              <span class="dropdown-item-text text-muted">Nessun modello disponibile</span>
+            </li>
+          </ul>
+        </div>
       <router-link v-if="canManageMachines" to="/modules/ollama/macchine" class="btn btn-outline-secondary">
         <i class="bi bi-hdd-stack me-1"></i>Gestisci macchine
       </router-link>
+      </div>
     </div>
 
     <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
@@ -184,6 +212,16 @@ const errorMessage = ref('')
 let autoRefreshTimer = null
 
 const writableMachines = computed(() => (canPull.value ? machines.value.filter((m) => m.has_write_key) : []))
+
+const allAvailableModels = computed(() => {
+  const names = new Set()
+  for (const m of machines.value) {
+    for (const am of m.available_models || []) {
+      names.add(am.name)
+    }
+  }
+  return [...names].sort()
+})
 
 function formatBytes(bytes) {
   if (bytes === null || bytes === undefined) return '-'
