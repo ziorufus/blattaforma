@@ -24,43 +24,46 @@
         <tbody>
           <tr v-for="m in machines" :key="m.id">
             <td>
+              <span class="rounded-logo"><i class="bi" :class="{'bi-apple': m.os === 'macos', 'bi-tux': m.os === 'linux'}"></i></span>
               <div class="fw-semibold">{{ m.name }}</div>
               <div class="text-muted small">{{ m.ip_address }}</div>
             </td>
             <td>
-              <template v-if="m.total_bytes != null">
-                <div class="progress" style="height: 18px">
-                  <div
-                    class="progress-bar bg-danger"
-                    :style="{ width: otherPct(m) + '%' }"
-                    :title="`Altri processi: ${formatBytes(otherBytes(m))}`"
-                  ></div>
-                  <div
-                    class="progress-bar bg-warning"
-                    :style="{ width: ollamaPct(m) + '%' }"
-                    :title="`Ollama: ${formatBytes(m.ollama_bytes)}`"
-                  ></div>
-                </div>
-                <div class="text-muted small mt-1">
-                  {{ formatBytes(otherBytes(m)) }} altro + {{ formatBytes(m.ollama_bytes) }} ollama /
-                  {{ formatBytes(m.total_bytes) }} ({{ formatBytes(m.available_bytes) }} libera)
-                </div>
-              </template>
-              <span v-else class="text-muted small">N/D</span>
+              <div class="progress-container">
+                <template v-if="m.total_bytes != null">
+                  <div class="progress">
+                    <div
+                      class="progress-bar bg-danger"
+                      :style="{ width: otherPct(m) + '%' }"
+                      :title="`Altri processi: ${formatBytes(otherBytes(m))}`"
+                    ></div>
+                    <div
+                      class="progress-bar bg-warning"
+                      :style="{ width: ollamaPct(m) + '%' }"
+                      :title="`Ollama: ${formatBytes(m.ollama_bytes)}`"
+                    ></div>
+                  </div>
+                  <div class="text-muted small mt-1 progress-labels">
+                    {{ formatBytes(otherBytes(m)) }} altro + {{ formatBytes(m.ollama_bytes) }} ollama /
+                    {{ formatBytes(m.total_bytes) }} ({{ formatBytes(m.available_bytes) }} libera)
+                  </div>
+                </template>
+                <span v-else class="text-muted small">N/D</span>
 
-              <template v-if="m.gpu_percent != null">
-                <div class="progress mt-2" style="height: 18px">
-                  <div
-                    class="progress-bar bg-primary"
-                    :style="{ width: m.gpu_percent + '%' }"
-                    :title="`GPU: ${formatPercent(m.gpu_percent)}`"
-                  ></div>
-                </div>
-                <div class="text-muted small mt-1">
-                  GPU {{ formatPercent(m.gpu_percent) }} · {{ formatTemp(m.gpu_temp_celsius) }} ·
-                  {{ formatPower(m.gpu_power_watts) }}
-                </div>
-              </template>
+                <template v-if="m.gpu_percent != null">
+                  <div class="progress mt-2">
+                    <div
+                      class="progress-bar bg-primary"
+                      :style="{ width: m.gpu_percent + '%' }"
+                      :title="`GPU: ${formatPercent(m.gpu_percent)}`"
+                    ></div>
+                  </div>
+                  <div class="text-muted small mt-1 progress-labels">
+                    GPU {{ formatPercent(m.gpu_percent) }} · {{ formatTemp(m.gpu_temp_celsius) }} ·
+                    {{ formatPower(m.gpu_power_watts) }}
+                  </div>
+                </template>
+              </div>
             </td>
             <td>
               <span
@@ -358,3 +361,20 @@ onUnmounted(() => {
   if (autoRefreshTimer) clearInterval(autoRefreshTimer)
 })
 </script>
+
+<style scoped>
+.progress {
+  border: 1px solid #aaa;
+  height: 10px;
+}
+.progress-labels {
+  font-size: 0.8rem;
+}
+.progress-container {
+  padding-top: 5px;
+}
+.rounded-logo {
+  display: inline-block;
+  font-size: 1.3rem;
+}
+</style>
