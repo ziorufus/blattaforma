@@ -1,45 +1,49 @@
 <template>
   <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container-xxl">
-      <router-link class="navbar-brand d-flex align-items-center" to="/" @click="closeAll">
+      <router-link class="navbar-brand d-flex align-items-center" to="/">
         <img src="/blattaforma-logo.png" alt="Blattaforma" height="32" class="me-2" />
         Blattaforma
       </router-link>
-      <button class="navbar-toggler" type="button" @click="navOpen = !navOpen">
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+        data-bs-target="#navContent" aria-controls="navContent"
+        aria-expanded="false" aria-label="Toggle navigation"
+      >
         <span class="navbar-toggler-icon"></span>
       </button>
-      <div class="collapse navbar-collapse" :class="{ show: navOpen }" id="navContent">
+      <div class="collapse navbar-collapse" id="navContent">
         <ul class="navbar-nav me-auto mb-2 mb-lg-0">
           <li class="nav-item">
-            <router-link class="nav-link" to="/" @click="closeAll">Dashboard</router-link>
+            <router-link class="nav-link" to="/">Dashboard</router-link>
           </li>
           <li class="nav-item" v-for="m in auth.accessibleModules" :key="m.name">
-            <router-link class="nav-link" :to="`/modules/${m.name}`" @click="closeAll">
+            <router-link class="nav-link" :to="`/modules/${m.name}`">
               {{ m.label }}
             </router-link>
           </li>
-          <li class="nav-item dropdown" v-if="auth.isAdmin" ref="adminDropdownEl">
+          <li class="nav-item dropdown" v-if="auth.isAdmin">
             <a
               class="nav-link dropdown-toggle"
               href="#"
               role="button"
-              @click.prevent="toggleDropdown('admin')"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
             >
               Amministrazione
             </a>
-            <ul class="dropdown-menu" :class="{ show: adminOpen }">
+            <ul class="dropdown-menu">
               <li>
-                <router-link class="dropdown-item" to="/admin/users" @click="closeAll">
+                <router-link class="dropdown-item" to="/admin/users">
                   Utenti
                 </router-link>
               </li>
               <li>
-                <router-link class="dropdown-item" to="/admin/groups" @click="closeAll">
+                <router-link class="dropdown-item" to="/admin/groups">
                   Gruppi
                 </router-link>
               </li>
               <li>
-                <router-link class="dropdown-item" to="/admin/modules" @click="closeAll">
+                <router-link class="dropdown-item" to="/admin/modules">
                   Moduli
                 </router-link>
               </li>
@@ -47,12 +51,13 @@
           </li>
         </ul>
         <ul class="navbar-nav">
-          <li class="nav-item dropdown" ref="userDropdownEl">
+          <li class="nav-item dropdown">
             <a
               class="nav-link dropdown-toggle d-flex align-items-center"
               href="#"
               role="button"
-              @click.prevent="toggleDropdown('user')"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
             >
               <img
                 v-if="auth.user?.picture"
@@ -65,7 +70,7 @@
               {{ auth.user?.name || auth.user?.email }}
               <span v-if="auth.isAdmin" class="badge bg-warning text-dark ms-2">admin</span>
             </a>
-            <ul class="dropdown-menu dropdown-menu-end" :class="{ show: userOpen }">
+            <ul class="dropdown-menu dropdown-menu-end">
               <li><button class="dropdown-item" type="button" @click="doLogout">Esci</button></li>
             </ul>
           </li>
@@ -76,55 +81,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
 
-// Bootstrap's own data-bs-toggle/data-bs-dismiss auto-wiring depends on
-// document-level listeners registered as a side effect of importing its JS
-// bundle. That import doesn't reliably survive the Vite/Rollup production
-// build, so dropdowns/collapse are driven here with plain Vue state instead
-// of relying on Bootstrap's JS at all.
-const navOpen = ref(false)
-const adminOpen = ref(false)
-const userOpen = ref(false)
-
-const adminDropdownEl = ref(null)
-const userDropdownEl = ref(null)
-
-function toggleDropdown(which) {
-  if (which === 'admin') {
-    adminOpen.value = !adminOpen.value
-    userOpen.value = false
-  } else {
-    userOpen.value = !userOpen.value
-    adminOpen.value = false
-  }
-}
-
-function closeAll() {
-  adminOpen.value = false
-  userOpen.value = false
-  navOpen.value = false
-}
-
-function onDocumentClick(event) {
-  if (adminOpen.value && adminDropdownEl.value && !adminDropdownEl.value.contains(event.target)) {
-    adminOpen.value = false
-  }
-  if (userOpen.value && userDropdownEl.value && !userDropdownEl.value.contains(event.target)) {
-    userOpen.value = false
-  }
-}
-
-onMounted(() => document.addEventListener('click', onDocumentClick))
-onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
-
 function doLogout() {
-  closeAll()
   auth.logout()
   router.push({ name: 'login' })
 }
