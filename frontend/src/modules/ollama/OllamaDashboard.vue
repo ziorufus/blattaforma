@@ -6,7 +6,7 @@
         <div class="dropdown">
           <button
             type="button"
-            class="btn btn-outline-secondary"
+            class="btn btn-outline-secondary dropdown-toggle"
             data-bs-toggle="dropdown"
             id="dropdown-info"
           >
