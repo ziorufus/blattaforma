@@ -89,7 +89,13 @@
               <div class="input-group input-group-sm">
                 <select v-model="m.selectedModel" class="form-select" :disabled="m.loadingModel">
                   <option value="">[Seleziona il modello]</option>
-                  <option v-for="am in m.available_models" :key="am.name" :value="am.name">
+                  <option
+                    v-for="am in m.available_models"
+                    :key="am.name"
+                    :value="am.name"
+                    :disabled="modelTooBig(m, am)"
+                    :title="modelTooBig(m, am) ? 'RAM insufficiente su questa macchina' : ''"
+                  >
                     {{ am.name }} ({{ formatBytes(am.size_bytes) }})
                   </option>
                 </select>
@@ -192,6 +198,10 @@ function otherPct(m) {
 
 function ollamaPct(m) {
   return m.total_bytes ? ((m.ollama_bytes || 0) / m.total_bytes) * 100 : 0
+}
+
+function modelTooBig(m, am) {
+  return am.size_bytes != null && m.available_bytes != null && am.size_bytes > m.available_bytes
 }
 
 function formatPercent(v) {
