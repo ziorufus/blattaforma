@@ -1,12 +1,12 @@
 <template>
   <div>
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h1 class="mb-0">Ollama</h1>
-      <div class="d-flex gap-2">
+    <div class="d-md-flex justify-content-between align-items-center mb-4">
+      <h1 class="mb-3 mb-md-0">Ollama</h1>
+      <div class="d-md-flex gap-2">
         <div class="dropdown">
           <button
             type="button"
-            class="btn btn-outline-secondary dropdown-toggle"
+            class="btn btn-outline-secondary dropdown-toggle mb-3 mb-md-0"
             data-bs-toggle="dropdown"
             id="dropdown-info"
           >

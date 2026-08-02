@@ -1,9 +1,9 @@
 <template>
   <div>
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h1 class="mb-0">Macchine Ollama</h1>
-      <div>
-        <router-link to="/modules/ollama" class="btn btn-outline-secondary me-2">
+    <div class="d-md-flex justify-content-between align-items-center mb-4">
+      <h1 class="mb-3 mb-md-0">Macchine Ollama</h1>
+      <div class="d-md-flex gap-2">
+        <router-link to="/modules/ollama" class="btn btn-outline-secondary mb-3 mb-md-0">
           <i class="bi bi-arrow-left me-1"></i>Torna alla dashboard
         </router-link>
         <button v-if="canManage" class="btn btn-primary" @click="openCreate">
@@ -18,38 +18,42 @@
     </div>
 
     <div v-if="loading" class="text-muted">Caricamento...</div>
-    <table v-else class="table table-striped align-middle">
-      <thead>
-        <tr>
-          <th>Nome</th>
-          <th>Indirizzo IP</th>
-          <th>Sistema operativo</th>
-          <th>Chiave di scrittura</th>
-          <th v-if="canManage" class="text-end">Azioni</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="m in machines" :key="m.id">
-          <td>{{ m.name }}</td>
-          <td>{{ m.ip_address }}</td>
-          <td>{{ m.os === 'macos' ? 'macOS' : 'Linux' }}</td>
-          <td>
-            <span class="badge" :class="m.has_write_key ? 'text-bg-success' : 'text-bg-secondary'">
-              {{ m.has_write_key ? 'Configurata' : 'Non configurata' }}
-            </span>
-          </td>
-          <td v-if="canManage" class="text-end">
-            <button class="btn btn-sm btn-outline-secondary me-2" @click="openEdit(m)">
-              Modifica
-            </button>
-            <button class="btn btn-sm btn-outline-danger" @click="removeMachine(m)">Elimina</button>
-          </td>
-        </tr>
-        <tr v-if="machines.length === 0">
-          <td :colspan="canManage ? 5 : 4" class="text-muted">Nessuna macchina configurata.</td>
-        </tr>
-      </tbody>
-    </table>
+    <div v-else class="table-responsive">
+      <table class="table table-striped align-middle">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Indirizzo IP</th>
+            <th>Sistema operativo</th>
+            <th>Chiave di scrittura</th>
+            <th v-if="canManage" class="text-end">Azioni</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="m in machines" :key="m.id">
+            <td>{{ m.name }}</td>
+            <td>{{ m.ip_address }}</td>
+            <td>{{ m.os === 'macos' ? 'macOS' : 'Linux' }}</td>
+            <td>
+              <span class="badge" :class="m.has_write_key ? 'text-bg-success' : 'text-bg-secondary'">
+                {{ m.has_write_key ? 'Configurata' : 'Non configurata' }}
+              </span>
+            </td>
+            <td v-if="canManage" class="text-end nobr">
+              <button class="btn btn-sm btn-outline-secondary me-2" @click="openEdit(m)">
+                <i class="bi bi-pencil-fill"></i>
+              </button>
+              <button class="btn btn-sm btn-outline-danger" @click="removeMachine(m)">
+                <i class="bi bi-trash-fill"></i>
+              </button>
+            </td>
+          </tr>
+          <tr v-if="machines.length === 0">
+            <td :colspan="canManage ? 5 : 4" class="text-muted">Nessuna macchina configurata.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <!-- Create / Edit modal -->
     <div class="modal fade" tabindex="-1" ref="modalEl">
@@ -245,3 +249,9 @@ onMounted(async () => {
   await loadMachines()
 })
 </script>
+
+<style scoped>
+.nobr {
+  white-space: nowrap;
+}
+</style>
