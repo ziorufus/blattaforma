@@ -29,9 +29,10 @@
             </li>
           </ul>
         </div>
-      <router-link v-if="canManageMachines" to="/modules/ollama/macchine" class="btn btn-outline-secondary">
-        <i class="bi bi-hdd-stack me-1"></i>Gestisci macchine
-      </router-link>
+        <router-link v-if="canManageMachines" to="/modules/ollama/macchine" class="btn btn-outline-secondary">
+          <i class="bi bi-cpu me-1"></i>
+          Gestisci macchine
+        </router-link>
       </div>
     </div>
 
