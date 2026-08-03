@@ -75,7 +75,17 @@
             </div>
             <div class="mb-3">
               <label class="form-label">Valore chiave</label>
-              <input v-model="form.value" type="text" class="form-control" required />
+              <div class="input-group">
+                <input v-model="form.value" type="text" class="form-control" required />
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  title="Genera valore casuale"
+                  @click="generateValue"
+                >
+                  <i class="bi bi-dice-5"></i>
+                </button>
+              </div>
             </div>
             <div class="mb-3">
               <label class="form-label">Etichetta (facoltativa)</label>
@@ -193,6 +203,12 @@ function resetForm() {
   form.all_machines = false
   form.active = true
   form.machine_ids = []
+}
+
+function generateValue() {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  form.value = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 function openCreate() {
