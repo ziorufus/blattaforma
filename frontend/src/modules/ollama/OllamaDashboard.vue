@@ -4,15 +4,15 @@
       <h1 class="mb-3 mb-md-0">Ollama</h1>
       <div class="d-md-flex gap-2">
         <div class="dropdown">
-          <button
+          <a
             type="button"
-            class="btn btn-outline-secondary dropdown-toggle mb-3 mb-md-0"
+            class="btn btn-outline-secondary dropdown-toggle mb-3 mb-md-0 d-block d-md-inline"
             data-bs-toggle="dropdown"
             id="dropdown-info"
           >
             <i class="bi bi-info-circle me-1"></i>
             Informazioni modello
-          </button>
+        </a>
           <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdown-info">
             <li v-for="model in allAvailableModels" :key="model">
               <a
@@ -29,9 +29,13 @@
             </li>
           </ul>
         </div>
-        <router-link v-if="canManageMachines" to="/modules/ollama/macchine" class="btn btn-outline-secondary">
+        <router-link v-if="canManageMachines" to="/modules/ollama/macchine" class="btn btn-outline-secondary mb-3 mb-md-0 d-block d-md-inline">
           <i class="bi bi-cpu me-1"></i>
           Gestisci macchine
+        </router-link>
+        <router-link v-if="canManageMachines" to="/modules/ollama/chiavi" class="btn btn-outline-secondary d-block d-md-inline">
+          <i class="bi bi-key-fill me-1"></i>
+          Gestisci chiavi
         </router-link>
       </div>
     </div>

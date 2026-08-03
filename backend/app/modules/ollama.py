@@ -14,7 +14,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, func
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from ..database import Base, engine
@@ -45,6 +45,26 @@ class OllamaMachine(Base):
     os: Mapped[str] = mapped_column(String(20), nullable=False)
 
 
+class OllamaKey(Base):
+    __tablename__ = "ollama_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[str] = mapped_column(String(512), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=True)
+    all_machines: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
+
+
+ollama_key_machine_association = Table(
+    "ollama_keys_machines",
+    Base.metadata,
+    Column("key_id", Integer, ForeignKey("ollama_keys.id", ondelete="CASCADE"), primary_key=True),
+    Column("machine_id", Integer, ForeignKey("ollama_machines.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 # ---------- Schemas ----------
 
 
@@ -72,6 +92,46 @@ class MachineOut(BaseModel):
     ip_address: str
     os: str
     has_write_key: bool
+
+
+class KeyCreate(BaseModel):
+    name: str
+    value: str
+    label: str | None = None
+    all_machines: bool = False
+    active: bool = True
+    machine_ids: list[int] = []
+
+
+class KeyUpdate(BaseModel):
+    name: str | None = None
+    value: str | None = None
+    label: str | None = None
+    all_machines: bool | None = None
+    active: bool | None = None
+    machine_ids: list[int] | None = None
+
+
+class KeyOut(BaseModel):
+    id: int
+    name: str
+    masked_value: str
+    label: str | None
+    all_machines: bool
+    active: bool
+    machine_ids: list[int]
+    machine_names: list[str]
+
+
+class KeyDetail(BaseModel):
+    id: int
+    name: str
+    value: str
+    label: str | None
+    all_machines: bool
+    active: bool
+    machine_ids: list[int]
+    machine_names: list[str]
 
 
 class ModelInfo(BaseModel):
@@ -127,6 +187,92 @@ def _get_machine_or_404(db: Session, machine_id: int) -> OllamaMachine:
 def _require_role(roles: list[str], role: str) -> None:
     if role not in roles:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Richiesto il ruolo '{role}'")
+
+
+def _get_key_or_404(db: Session, key_id: int) -> OllamaKey:
+    key = db.query(OllamaKey).filter(OllamaKey.id == key_id).first()
+    if not key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chiave non trovata")
+    return key
+
+
+def _mask_value(value: str) -> str:
+    if len(value) <= 5:
+        return value
+    return "•" * min(len(value) - 5, 8) + value[-5:]
+
+
+def _validate_key_rule(all_machines: bool, machine_ids: list[int], label: str | None) -> None:
+    if not all_machines and not machine_ids and not (label and label.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Specificare almeno una tra: tutte le macchine, una macchina associata o un'etichetta",
+        )
+
+
+def _key_machine_ids(db: Session, key_id: int) -> list[int]:
+    rows = (
+        db.query(ollama_key_machine_association.c.machine_id)
+        .filter(ollama_key_machine_association.c.key_id == key_id)
+        .all()
+    )
+    return [r[0] for r in rows]
+
+
+def _set_key_machines(db: Session, key_id: int, machine_ids: list[int]) -> None:
+    if machine_ids:
+        existing = db.query(OllamaMachine.id).filter(OllamaMachine.id.in_(machine_ids)).all()
+        found_ids = {r[0] for r in existing}
+        missing = set(machine_ids) - found_ids
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Macchine non trovate: {sorted(missing)}",
+            )
+
+    db.execute(
+        ollama_key_machine_association.delete().where(ollama_key_machine_association.c.key_id == key_id)
+    )
+    for machine_id in machine_ids:
+        db.execute(
+            ollama_key_machine_association.insert().values(key_id=key_id, machine_id=machine_id)
+        )
+
+
+def _to_key_out(db: Session, key: OllamaKey) -> KeyOut:
+    machine_ids = [] if key.all_machines else _key_machine_ids(db, key.id)
+    machine_names = []
+    if machine_ids:
+        rows = db.query(OllamaMachine.name).filter(OllamaMachine.id.in_(machine_ids)).all()
+        machine_names = [r[0] for r in rows]
+    return KeyOut(
+        id=key.id,
+        name=key.name,
+        masked_value=_mask_value(key.value),
+        label=key.label,
+        all_machines=key.all_machines,
+        active=key.active,
+        machine_ids=machine_ids,
+        machine_names=machine_names,
+    )
+
+
+def _to_key_detail(db: Session, key: OllamaKey) -> KeyDetail:
+    machine_ids = [] if key.all_machines else _key_machine_ids(db, key.id)
+    machine_names = []
+    if machine_ids:
+        rows = db.query(OllamaMachine.name).filter(OllamaMachine.id.in_(machine_ids)).all()
+        machine_names = [r[0] for r in rows]
+    return KeyDetail(
+        id=key.id,
+        name=key.name,
+        value=key.value,
+        label=key.label,
+        all_machines=key.all_machines,
+        active=key.active,
+        machine_ids=machine_ids,
+        machine_names=machine_names,
+    )
 
 
 def _auth_header(api_key: str) -> dict[str, str]:
@@ -240,6 +386,100 @@ def delete_machine(
     _require_role(roles, "machines")
     machine = _get_machine_or_404(db, machine_id)
     db.delete(machine)
+    db.commit()
+
+
+# ---------- API keys CRUD (role: machines) ----------
+
+
+@router.get("/keys", response_model=list[KeyOut])
+def list_keys(
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    db: Session = Depends(get_db),
+):
+    _require_role(roles, "machines")
+    return [_to_key_out(db, k) for k in db.query(OllamaKey).order_by(OllamaKey.id).all()]
+
+
+@router.post("/keys", response_model=KeyDetail, status_code=status.HTTP_201_CREATED)
+def create_key(
+    payload: KeyCreate,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    db: Session = Depends(get_db),
+):
+    _require_role(roles, "machines")
+
+    machine_ids = [] if payload.all_machines else payload.machine_ids
+    _validate_key_rule(payload.all_machines, machine_ids, payload.label)
+
+    key = OllamaKey(
+        name=payload.name,
+        value=payload.value,
+        label=payload.label,
+        all_machines=payload.all_machines,
+        active=payload.active,
+    )
+    db.add(key)
+    db.flush()
+    _set_key_machines(db, key.id, machine_ids)
+    db.commit()
+    db.refresh(key)
+    return _to_key_detail(db, key)
+
+
+@router.get("/keys/{key_id}", response_model=KeyDetail)
+def get_key(
+    key_id: int,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    db: Session = Depends(get_db),
+):
+    _require_role(roles, "machines")
+    key = _get_key_or_404(db, key_id)
+    return _to_key_detail(db, key)
+
+
+@router.patch("/keys/{key_id}", response_model=KeyDetail)
+def update_key(
+    key_id: int,
+    payload: KeyUpdate,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    db: Session = Depends(get_db),
+):
+    _require_role(roles, "machines")
+    key = _get_key_or_404(db, key_id)
+
+    data = payload.model_dump(exclude_unset=True)
+    for field in ("name", "value", "label"):
+        if field in data:
+            setattr(key, field, data[field])
+    if "active" in data and data["active"] is not None:
+        key.active = data["active"]
+    if "all_machines" in data and data["all_machines"] is not None:
+        key.all_machines = data["all_machines"]
+
+    machine_ids = data.get("machine_ids")
+    if key.all_machines:
+        machine_ids = []
+    elif machine_ids is None:
+        machine_ids = _key_machine_ids(db, key.id)
+
+    _validate_key_rule(key.all_machines, machine_ids, key.label)
+    _set_key_machines(db, key.id, machine_ids)
+
+    db.commit()
+    db.refresh(key)
+    return _to_key_detail(db, key)
+
+
+@router.delete("/keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_key(
+    key_id: int,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    db: Session = Depends(get_db),
+):
+    _require_role(roles, "machines")
+    key = _get_key_or_404(db, key_id)
+    db.delete(key)
     db.commit()
 
 

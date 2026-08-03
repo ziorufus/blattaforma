@@ -3,12 +3,12 @@
     <div class="d-md-flex justify-content-between align-items-center mb-4">
       <h1 class="mb-3 mb-md-0">Macchine Ollama</h1>
       <div class="d-md-flex gap-2">
-        <router-link to="/modules/ollama" class="btn btn-outline-secondary mb-3 mb-md-0">
+        <router-link to="/modules/ollama" class="btn btn-outline-secondary mb-3 mb-md-0 d-block d-md-inline">
           <i class="bi bi-arrow-left me-1"></i>Torna alla dashboard
         </router-link>
-        <button v-if="canManage" class="btn btn-primary" @click="openCreate">
+        <a v-if="canManage" class="btn btn-primary d-block d-md-inline" @click="openCreate">
           <i class="bi bi-plus-lg me-1"></i>Nuova macchina
-        </button>
+        </a>
       </div>
     </div>
 
