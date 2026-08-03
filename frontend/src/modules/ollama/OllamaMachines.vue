@@ -23,6 +23,7 @@
         <thead>
           <tr>
             <th>Nome</th>
+            <th>ID macchina</th>
             <th>Indirizzo IP</th>
             <th>Sistema operativo</th>
             <th>Chiave di scrittura</th>
@@ -32,6 +33,7 @@
         <tbody>
           <tr v-for="m in machines" :key="m.id">
             <td>{{ m.name }}</td>
+            <td><code>{{ m.slug }}</code></td>
             <td>{{ m.ip_address }}</td>
             <td>{{ m.os === 'macos' ? 'macOS' : 'Linux' }}</td>
             <td>
@@ -49,7 +51,7 @@
             </td>
           </tr>
           <tr v-if="machines.length === 0">
-            <td :colspan="canManage ? 5 : 4" class="text-muted">Nessuna macchina configurata.</td>
+            <td :colspan="canManage ? 6 : 5" class="text-muted">Nessuna macchina configurata.</td>
           </tr>
         </tbody>
       </table>
@@ -68,7 +70,19 @@
 
             <div class="mb-3">
               <label class="form-label">Nome</label>
-              <input v-model="form.name" type="text" class="form-control" required />
+              <input v-model="form.name" type="text" class="form-control" required @input="onNameInput" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">ID macchina</label>
+              <input
+                v-model="form.slug"
+                type="text"
+                class="form-control"
+                pattern="[a-z0-9-]+"
+                title="Solo lettere minuscole, numeri e trattini"
+                required
+                @input="slugTouched = true"
+              />
             </div>
             <div class="mb-3">
               <label class="form-label">Indirizzo IP</label>
@@ -150,12 +164,25 @@ let modalInstance = null
 const form = reactive({
   id: null,
   name: '',
+  slug: '',
   ip_address: '',
   os: 'linux',
   api_key_read: '',
   api_key_write: '',
   clear_api_key_write: false,
 })
+
+let slugTouched = false
+
+function slugify(value) {
+  return value.toLowerCase().replace(/\s+/g, '-')
+}
+
+function onNameInput() {
+  if (!form.id && !slugTouched) {
+    form.slug = slugify(form.name)
+  }
+}
 
 async function loadMachines() {
   loading.value = true
@@ -173,11 +200,13 @@ async function loadMachines() {
 function resetForm() {
   form.id = null
   form.name = ''
+  form.slug = ''
   form.ip_address = ''
   form.os = 'linux'
   form.api_key_read = ''
   form.api_key_write = ''
   form.clear_api_key_write = false
+  slugTouched = false
 }
 
 function openCreate() {
@@ -189,11 +218,13 @@ function openCreate() {
 function openEdit(machine) {
   form.id = machine.id
   form.name = machine.name
+  form.slug = machine.slug
   form.ip_address = machine.ip_address
   form.os = machine.os
   form.api_key_read = ''
   form.api_key_write = ''
   form.clear_api_key_write = false
+  slugTouched = true
   modalError.value = ''
   modalInstance.show()
 }
@@ -205,6 +236,7 @@ async function save() {
     if (!form.id) {
       await api.post('/api/modules/ollama/machines', {
         name: form.name,
+        slug: form.slug,
         ip_address: form.ip_address,
         os: form.os,
         api_key_read: form.api_key_read,
@@ -213,6 +245,7 @@ async function save() {
     } else {
       const payload = {
         name: form.name,
+        slug: form.slug,
         ip_address: form.ip_address,
         os: form.os,
       }

@@ -11,9 +11,9 @@ import re
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, func
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -28,6 +28,8 @@ OLLAMA_READ_PORT = 11435
 OLLAMA_WRITE_PORT = 11436
 NODE_EXPORTER_PORT = 9100
 
+SLUG_PATTERN = r"^[a-z0-9-]+$"
+
 router = APIRouter()
 
 
@@ -39,6 +41,7 @@ class OllamaMachine(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     ip_address: Mapped[str] = mapped_column(String(255), nullable=False)
     api_key_read: Mapped[str] = mapped_column(String(512), nullable=False)
     api_key_write: Mapped[str] = mapped_column(String(512), nullable=True)
@@ -70,6 +73,7 @@ ollama_key_machine_association = Table(
 
 class MachineCreate(BaseModel):
     name: str
+    slug: str = Field(pattern=SLUG_PATTERN)
     ip_address: str
     api_key_read: str
     api_key_write: str | None = None
@@ -78,6 +82,7 @@ class MachineCreate(BaseModel):
 
 class MachineUpdate(BaseModel):
     name: str | None = None
+    slug: str | None = Field(default=None, pattern=SLUG_PATTERN)
     ip_address: str | None = None
     api_key_read: str | None = None
     api_key_write: str | None = None
@@ -89,6 +94,7 @@ class MachineOut(BaseModel):
 
     id: int
     name: str
+    slug: str
     ip_address: str
     os: str
     has_write_key: bool
@@ -142,6 +148,7 @@ class ModelInfo(BaseModel):
 class MachineStatusOut(BaseModel):
     id: int
     name: str
+    slug: str
     ip_address: str
     os: str
     has_write_key: bool
@@ -171,6 +178,7 @@ def _to_machine_out(machine: OllamaMachine) -> MachineOut:
     return MachineOut(
         id=machine.id,
         name=machine.name,
+        slug=machine.slug,
         ip_address=machine.ip_address,
         os=machine.os,
         has_write_key=bool(machine.api_key_write),
@@ -182,6 +190,17 @@ def _get_machine_or_404(db: Session, machine_id: int) -> OllamaMachine:
     if not machine:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Macchina non trovata")
     return machine
+
+
+def _check_slug_unique(db: Session, slug: str, exclude_id: int | None = None) -> None:
+    query = db.query(OllamaMachine).filter(OllamaMachine.slug == slug)
+    if exclude_id is not None:
+        query = query.filter(OllamaMachine.id != exclude_id)
+    if query.first():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Esiste già una macchina con questo ID",
+        )
 
 
 def _require_role(roles: list[str], role: str) -> None:
@@ -346,6 +365,7 @@ def create_machine(
     db: Session = Depends(get_db),
 ):
     _require_role(roles, "machines")
+    _check_slug_unique(db, payload.slug)
     machine = OllamaMachine(**payload.model_dump())
     db.add(machine)
     db.commit()
@@ -364,7 +384,9 @@ def update_machine(
     machine = _get_machine_or_404(db, machine_id)
 
     data = payload.model_dump(exclude_unset=True)
-    for field in ("name", "ip_address", "os"):
+    if data.get("slug"):
+        _check_slug_unique(db, data["slug"], exclude_id=machine.id)
+    for field in ("name", "slug", "ip_address", "os"):
         if data.get(field):
             setattr(machine, field, data[field])
     if data.get("api_key_read"):
@@ -483,6 +505,53 @@ def delete_key(
     db.commit()
 
 
+# ---------- Token check (public, no Blattaforma auth) ----------
+#
+# Called by nginx (auth_request) on every machine, once per incoming Ollama
+# request, to decide whether to let it through. `Authorization` carries
+# either an ollama_keys value or a machine's own api_key_read (optionally
+# "Bearer <value>"), `Code` carries the machine's slug. Must only ever
+# answer 204 (allowed) or 401 (denied) -- nginx's auth_request treats
+# anything else as an upstream error.
+
+
+@router.get("/check", status_code=status.HTTP_204_NO_CONTENT)
+def check_token(
+    authorization: str | None = Header(default=None),
+    code: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    if not authorization or not code:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    key = db.query(OllamaKey).filter(OllamaKey.value == token, OllamaKey.active == True).first()  # noqa: E712
+    if key:
+        if key.all_machines:
+            return
+
+        if key.label == code:
+            return
+
+        match = (
+            db.query(ollama_key_machine_association)
+            .join(OllamaMachine, OllamaMachine.id == ollama_key_machine_association.c.machine_id)
+            .filter(ollama_key_machine_association.c.key_id == key.id, OllamaMachine.slug == code)
+            .first()
+        )
+        if match:
+            return
+
+    # Fallback: a machine's own read key is always valid for that same machine.
+    if db.query(OllamaMachine.id).filter(OllamaMachine.api_key_read == token, OllamaMachine.slug == code).first():
+        return
+
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+
 # ---------- Status (any granted role) ----------
 
 
@@ -496,6 +565,7 @@ async def machine_status(
     out = MachineStatusOut(
         id=machine.id,
         name=machine.name,
+        slug=machine.slug,
         ip_address=machine.ip_address,
         os=machine.os,
         has_write_key=bool(machine.api_key_write),
