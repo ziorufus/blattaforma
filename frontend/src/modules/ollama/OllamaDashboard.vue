@@ -42,123 +42,6 @@
 
     <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
 
-    <div v-if="loading" class="text-muted">Caricamento...</div>
-    <div v-else class="table-responsive">
-      <table class="table table-striped align-middle">
-        <thead>
-          <tr>
-            <th>Macchina</th>
-            <th style="min-width: 240px">Utilizzo</th>
-            <th>Modelli in RAM</th>
-            <th style="min-width: 260px">Carica un modello</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="m in machines" :key="m.id">
-            <td>
-              <span class="rounded-logo"><i class="bi" :class="{'bi-apple': m.os === 'macos', 'bi-tux': m.os === 'linux'}"></i></span>
-              <div class="fw-semibold">{{ m.name }}</div>
-              <div class="text-muted small">{{ m.ip_address }}</div>
-            </td>
-            <td>
-              <div class="progress-container">
-                <template v-if="m.total_bytes != null">
-                  <div class="progress">
-                    <div
-                      class="progress-bar bg-danger"
-                      :style="{ width: otherPct(m) + '%' }"
-                      :title="`Altri processi: ${formatBytes(otherBytes(m))}`"
-                    ></div>
-                    <div
-                      class="progress-bar bg-warning"
-                      :style="{ width: ollamaPct(m) + '%' }"
-                      :title="`Ollama: ${formatBytes(m.ollama_bytes)}`"
-                    ></div>
-                  </div>
-                  <div class="text-muted small mt-1 progress-labels">
-                    {{ formatBytes(otherBytes(m)) }} altro + {{ formatBytes(m.ollama_bytes) }} ollama /
-                    {{ formatBytes(m.total_bytes) }} ({{ formatBytes(m.available_bytes) }} libera)
-                  </div>
-                </template>
-                <span v-else class="text-muted small">N/D</span>
-
-                <template v-if="m.gpu_percent != null">
-                  <div class="progress mt-2">
-                    <div
-                      class="progress-bar bg-primary"
-                      :style="{ width: m.gpu_percent + '%' }"
-                      :title="`GPU: ${formatPercent(m.gpu_percent)}`"
-                    ></div>
-                  </div>
-                  <div class="text-muted small mt-1 progress-labels">
-                    GPU {{ formatPercent(m.gpu_percent) }} · {{ formatTemp(m.gpu_temp_celsius) }} ·
-                    {{ formatPower(m.gpu_power_watts) }}
-                  </div>
-                </template>
-              </div>
-            </td>
-            <td>
-              <span
-                v-for="lm in m.loaded_models"
-                :key="lm.name"
-                class="badge text-bg-info me-1 mb-1 d-inline-flex align-items-center"
-              >
-                {{ lm.name }} ({{ formatBytes(lm.size_bytes) }})
-                <button
-                  type="button"
-                  class="btn btn-sm btn-link text-white p-0 ms-1"
-                  style="line-height: 1"
-                  title="Espelli dalla RAM"
-                  :disabled="m.unloadingModel === lm.name"
-                  @click="unloadModel(m, lm.name)"
-                >
-                  <span v-if="m.unloadingModel === lm.name" class="spinner-border spinner-border-sm"></span>
-                  <i v-else class="bi bi-trash"></i>
-                </button>
-              </span>
-              <span v-if="!m.loaded_models || m.loaded_models.length === 0" class="text-muted small">
-                Nessuno
-              </span>
-            </td>
-            <td>
-              <div class="input-group input-group-sm">
-                <select v-model="m.selectedModel" class="form-select" :disabled="m.loadingModel">
-                  <option value="">[Seleziona il modello]</option>
-                  <option
-                    v-for="am in m.available_models"
-                    :key="am.name"
-                    :value="am.name"
-                    :disabled="modelTooBig(m, am)"
-                    :title="modelTooBig(m, am) ? 'RAM insufficiente su questa macchina' : ''"
-                  >
-                    {{ am.name }} ({{ formatBytes(am.size_bytes) }})
-                  </option>
-                </select>
-                <button
-                  class="btn btn-primary"
-                  :disabled="!m.selectedModel || m.loadingModel"
-                  @click="loadModel(m)"
-                >
-                  <span v-if="m.loadingModel" class="spinner-border spinner-border-sm"></span>
-                  <i v-else class="bi bi-check-lg"></i>
-                </button>
-              </div>
-            </td>
-            <td class="text-end">
-              <button class="btn btn-sm btn-outline-secondary" :disabled="m.refreshing" @click="refreshMachine(m)">
-                <span v-if="m.refreshing" class="spinner-border spinner-border-sm"></span>
-                <i v-else class="bi bi-arrow-clockwise"></i>
-              </button>
-            </td>
-          </tr>
-          <tr v-if="machines.length === 0">
-            <td colspan="5" class="text-muted">Nessuna macchina configurata.</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
     <div v-if="writableMachines.length" class="mt-4">
       <h5>Scarica nuovi modelli</h5>
       <div v-for="m in writableMachines" :key="m.id" class="card mb-2">
@@ -189,6 +72,186 @@
         </div>
       </div>
     </div>
+
+    <h5 class="mt-4">Gestione macchine</h5>
+    <div class="card mb-2">
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-striped align-middle">
+            <thead>
+              <tr>
+                <th>Macchina</th>
+                <th style="min-width: 240px">Utilizzo</th>
+                <th>Modelli in RAM</th>
+                <th style="min-width: 260px">Carica un modello</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody class="placeholder-glow" aria-hidden="true" v-if="loading">
+              <tr v-for="index in 4" :key="index">
+                <td>
+                  <span
+                    class="placeholder rounded-circle d-block"
+                    style="width: 32px; height: 32px;"
+                  ></span>
+                  <div class="d-flex align-items-start gap-2">
+
+                    <div class="flex-grow-1">
+                      <span class="placeholder col-8"></span>
+                      <span class="placeholder col-6 placeholder-sm d-block mt-1"></span>
+                    </div>
+                  </div>
+                </td>
+
+                <td>
+                  <span
+                    class="placeholder col-12 rounded"
+                    style="height: 8px;"
+                  ></span>
+
+                  <span class="placeholder col-10 placeholder-sm d-block mt-2"></span>
+
+                  <span
+                    class="placeholder col-12 rounded d-block mt-3"
+                    style="height: 8px;"
+                  ></span>
+
+                  <span class="placeholder col-7 placeholder-sm d-block mt-2"></span>
+                </td>
+
+                <td>
+                  <span class="placeholder col-6 placeholder-sm"></span>
+                </td>
+
+                <td>
+                  <div class="d-flex gap-1">
+                    <span
+                      class="placeholder flex-grow-1 rounded"
+                      style="height: 31px;"
+                    ></span>
+
+                    <span
+                      class="placeholder rounded"
+                      style="width: 38px; height: 31px;"
+                    ></span>
+                  </div>
+                </td>
+
+                <td class="text-end">
+                  <span
+                    class="placeholder rounded"
+                    style="width: 32px; height: 31px;"
+                  ></span>
+                </td>            
+              </tr>
+            </tbody>
+            <tbody v-else>
+              <tr v-for="m in machines" :key="m.id">
+                <td>
+                  <span class="rounded-logo"><i class="bi" :class="{'bi-apple': m.os === 'macos', 'bi-tux': m.os === 'linux'}"></i></span>
+                  <div class="fw-semibold">{{ m.name }}</div>
+                  <div class="text-muted small">{{ m.ip_address }}</div>
+                </td>
+                <td>
+                  <div class="progress-container">
+                    <template v-if="m.total_bytes != null">
+                      <div class="progress">
+                        <div
+                          class="progress-bar bg-danger"
+                          :style="{ width: otherPct(m) + '%' }"
+                          :title="`Altri processi: ${formatBytes(otherBytes(m))}`"
+                        ></div>
+                        <div
+                          class="progress-bar bg-warning"
+                          :style="{ width: ollamaPct(m) + '%' }"
+                          :title="`Ollama: ${formatBytes(m.ollama_bytes)}`"
+                        ></div>
+                      </div>
+                      <div class="text-muted small mt-1 progress-labels">
+                        {{ formatBytes(otherBytes(m)) }} altro + {{ formatBytes(m.ollama_bytes) }} ollama /
+                        {{ formatBytes(m.total_bytes) }} ({{ formatBytes(m.available_bytes) }} libera)
+                      </div>
+                    </template>
+                    <span v-else class="text-muted small">N/D</span>
+
+                    <template v-if="m.gpu_percent != null">
+                      <div class="progress mt-2">
+                        <div
+                          class="progress-bar bg-primary"
+                          :style="{ width: m.gpu_percent + '%' }"
+                          :title="`GPU: ${formatPercent(m.gpu_percent)}`"
+                        ></div>
+                      </div>
+                      <div class="text-muted small mt-1 progress-labels">
+                        GPU {{ formatPercent(m.gpu_percent) }} · {{ formatTemp(m.gpu_temp_celsius) }} ·
+                        {{ formatPower(m.gpu_power_watts) }}
+                      </div>
+                    </template>
+                  </div>
+                </td>
+                <td>
+                  <span
+                    v-for="lm in m.loaded_models"
+                    :key="lm.name"
+                    class="badge text-bg-info me-1 mb-1 d-inline-flex align-items-center"
+                  >
+                    {{ lm.name }} ({{ formatBytes(lm.size_bytes) }})
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-link text-white p-0 ms-1"
+                      style="line-height: 1"
+                      title="Espelli dalla RAM"
+                      :disabled="m.unloadingModel === lm.name"
+                      @click="unloadModel(m, lm.name)"
+                    >
+                      <span v-if="m.unloadingModel === lm.name" class="spinner-border spinner-border-sm"></span>
+                      <i v-else class="bi bi-trash"></i>
+                    </button>
+                  </span>
+                  <span v-if="!m.loaded_models || m.loaded_models.length === 0" class="text-muted small">
+                    Nessuno
+                  </span>
+                </td>
+                <td>
+                  <div class="input-group input-group-sm">
+                    <select v-model="m.selectedModel" class="form-select" :disabled="m.loadingModel">
+                      <option value="">[Seleziona il modello]</option>
+                      <option
+                        v-for="am in m.available_models"
+                        :key="am.name"
+                        :value="am.name"
+                        :disabled="modelTooBig(m, am)"
+                        :title="modelTooBig(m, am) ? 'RAM insufficiente su questa macchina' : ''"
+                      >
+                        {{ am.name }} ({{ formatBytes(am.size_bytes) }})
+                      </option>
+                    </select>
+                    <button
+                      class="btn btn-primary"
+                      :disabled="!m.selectedModel || m.loadingModel"
+                      @click="loadModel(m)"
+                    >
+                      <span v-if="m.loadingModel" class="spinner-border spinner-border-sm"></span>
+                      <i v-else class="bi bi-check-lg"></i>
+                    </button>
+                  </div>
+                </td>
+                <td class="text-end">
+                  <button class="btn btn-sm btn-outline-secondary" :disabled="m.refreshing" @click="refreshMachine(m)">
+                    <span v-if="m.refreshing" class="spinner-border spinner-border-sm"></span>
+                    <i v-else class="bi bi-arrow-clockwise"></i>
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="machines.length === 0">
+                <td colspan="5" class="text-muted">Nessuna macchina configurata.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -377,6 +440,7 @@ async function pullModel(m) {
         m.pullStatus = evt.status || ''
         if (evt.total && evt.completed) {
           m.pullPct = Math.round((evt.completed / evt.total) * 100)
+          m.pullStatus += ` (${m.pullPct}%)`
         }
       }
     }
