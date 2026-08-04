@@ -60,6 +60,16 @@ class OllamaKey(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
 
 
+class OllamaKeyLog(Base):
+    __tablename__ = "ollama_keys_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    code: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
+    response_code: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 ollama_key_machine_association = Table(
     "ollama_keys_machines",
     Base.metadata,
@@ -513,6 +523,10 @@ def delete_key(
 # "Bearer <value>"), `Code` carries the machine's slug. Must only ever
 # answer 204 (allowed) or 401 (denied) -- nginx's auth_request treats
 # anything else as an upstream error.
+#
+# Every check made with an ollama_keys value (active or not) is logged to
+# ollama_keys_log. Checks made with a machine's own read key are never
+# logged, since that key isn't managed through ollama_keys.
 
 
 @router.get("/check", status_code=status.HTTP_204_NO_CONTENT)
@@ -528,24 +542,32 @@ def check_token(
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
 
-    key = db.query(OllamaKey).filter(OllamaKey.value == token, OllamaKey.active == True).first()  # noqa: E712
-    if key:
+    key = db.query(OllamaKey).filter(OllamaKey.value == token).first()
+    allowed = False
+
+    if key and key.active:
         if key.all_machines:
-            return
+            allowed = True
+        elif key.label == code:
+            allowed = True
+        else:
+            match = (
+                db.query(ollama_key_machine_association)
+                .join(OllamaMachine, OllamaMachine.id == ollama_key_machine_association.c.machine_id)
+                .filter(ollama_key_machine_association.c.key_id == key.id, OllamaMachine.slug == code)
+                .first()
+            )
+            allowed = bool(match)
 
-        if key.label == code:
-            return
+    if key is not None:
+        response_code = status.HTTP_204_NO_CONTENT if allowed else status.HTTP_401_UNAUTHORIZED
+        db.add(OllamaKeyLog(key_id=key.id, code=code, response_code=response_code))
+        db.commit()
 
-        match = (
-            db.query(ollama_key_machine_association)
-            .join(OllamaMachine, OllamaMachine.id == ollama_key_machine_association.c.machine_id)
-            .filter(ollama_key_machine_association.c.key_id == key.id, OllamaMachine.slug == code)
-            .first()
-        )
-        if match:
-            return
+    if allowed:
+        return
 
-    # Fallback: a machine's own read key is always valid for that same machine.
+    # Fallback: a machine's own read key is always valid for that same machine (never logged).
     if db.query(OllamaMachine.id).filter(OllamaMachine.api_key_read == token, OllamaMachine.slug == code).first():
         return
 
