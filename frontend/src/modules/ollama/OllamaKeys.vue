@@ -20,7 +20,6 @@
         <thead>
           <tr>
             <th>Nome</th>
-            <th>Etichetta</th>
             <th>Macchine</th>
             <th>Attivo</th>
             <th>Valore</th>
@@ -30,7 +29,6 @@
         <tbody>
           <tr v-for="k in keys" :key="k.id">
             <td>{{ k.name }}</td>
-            <td>{{ k.label || '—' }}</td>
             <td>
               <span v-if="k.all_machines" class="badge text-bg-info">Tutte le macchine</span>
               <span v-else-if="k.machine_names.length">{{ k.machine_names.join(', ') }}</span>
@@ -52,7 +50,7 @@
             </td>
           </tr>
           <tr v-if="keys.length === 0">
-            <td colspan="6" class="text-muted">Nessuna chiave configurata.</td>
+            <td colspan="5" class="text-muted">Nessuna chiave configurata.</td>
           </tr>
         </tbody>
       </table>
@@ -86,10 +84,6 @@
                   <i class="bi bi-dice-5"></i>
                 </button>
               </div>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Etichetta (facoltativa)</label>
-              <input v-model="form.label" type="text" class="form-control" />
             </div>
             <div class="form-check mb-3">
               <input
@@ -161,7 +155,6 @@ const form = reactive({
   id: null,
   name: '',
   value: '',
-  label: '',
   all_machines: false,
   active: true,
   machine_ids: [],
@@ -199,7 +192,6 @@ function resetForm() {
   form.id = null
   form.name = ''
   form.value = ''
-  form.label = ''
   form.all_machines = false
   form.active = true
   form.machine_ids = []
@@ -224,7 +216,6 @@ async function openEdit(key) {
     form.id = data.id
     form.name = data.name
     form.value = data.value
-    form.label = data.label || ''
     form.all_machines = data.all_machines
     form.active = data.active
     form.machine_ids = [...data.machine_ids]
@@ -236,9 +227,8 @@ async function openEdit(key) {
 
 async function save() {
   modalError.value = ''
-  if (!form.all_machines && form.machine_ids.length === 0 && !form.label.trim()) {
-    modalError.value =
-      "Specificare almeno una tra: tutte le macchine, una macchina associata o un'etichetta."
+  if (!form.all_machines && form.machine_ids.length === 0) {
+    modalError.value = 'Specificare almeno una tra: tutte le macchine o una macchina associata.'
     return
   }
 
@@ -247,7 +237,6 @@ async function save() {
     const payload = {
       name: form.name,
       value: form.value,
-      label: form.label || null,
       all_machines: form.all_machines,
       active: form.active,
       machine_ids: form.all_machines ? [] : form.machine_ids,

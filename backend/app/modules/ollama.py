@@ -54,7 +54,6 @@ class OllamaKey(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     value: Mapped[str] = mapped_column(String(512), nullable=False)
-    label: Mapped[str] = mapped_column(String(255), nullable=True)
     all_machines: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
@@ -113,7 +112,6 @@ class MachineOut(BaseModel):
 class KeyCreate(BaseModel):
     name: str
     value: str
-    label: str | None = None
     all_machines: bool = False
     active: bool = True
     machine_ids: list[int] = []
@@ -122,7 +120,6 @@ class KeyCreate(BaseModel):
 class KeyUpdate(BaseModel):
     name: str | None = None
     value: str | None = None
-    label: str | None = None
     all_machines: bool | None = None
     active: bool | None = None
     machine_ids: list[int] | None = None
@@ -132,7 +129,6 @@ class KeyOut(BaseModel):
     id: int
     name: str
     masked_value: str
-    label: str | None
     all_machines: bool
     active: bool
     machine_ids: list[int]
@@ -143,7 +139,6 @@ class KeyDetail(BaseModel):
     id: int
     name: str
     value: str
-    label: str | None
     all_machines: bool
     active: bool
     machine_ids: list[int]
@@ -233,11 +228,11 @@ def _mask_value(value: str) -> str:
     return "•" * min(len(value) - 5, 8) + value[-5:]
 
 
-def _validate_key_rule(all_machines: bool, machine_ids: list[int], label: str | None) -> None:
-    if not all_machines and not machine_ids and not (label and label.strip()):
+def _validate_key_rule(all_machines: bool, machine_ids: list[int]) -> None:
+    if not all_machines and not machine_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Specificare almeno una tra: tutte le macchine, una macchina associata o un'etichetta",
+            detail="Specificare almeno una tra: tutte le macchine o una macchina associata",
         )
 
 
@@ -280,7 +275,6 @@ def _to_key_out(db: Session, key: OllamaKey) -> KeyOut:
         id=key.id,
         name=key.name,
         masked_value=_mask_value(key.value),
-        label=key.label,
         all_machines=key.all_machines,
         active=key.active,
         machine_ids=machine_ids,
@@ -298,7 +292,6 @@ def _to_key_detail(db: Session, key: OllamaKey) -> KeyDetail:
         id=key.id,
         name=key.name,
         value=key.value,
-        label=key.label,
         all_machines=key.all_machines,
         active=key.active,
         machine_ids=machine_ids,
@@ -444,12 +437,11 @@ def create_key(
     _require_role(roles, "machines")
 
     machine_ids = [] if payload.all_machines else payload.machine_ids
-    _validate_key_rule(payload.all_machines, machine_ids, payload.label)
+    _validate_key_rule(payload.all_machines, machine_ids)
 
     key = OllamaKey(
         name=payload.name,
         value=payload.value,
-        label=payload.label,
         all_machines=payload.all_machines,
         active=payload.active,
     )
@@ -483,7 +475,7 @@ def update_key(
     key = _get_key_or_404(db, key_id)
 
     data = payload.model_dump(exclude_unset=True)
-    for field in ("name", "value", "label"):
+    for field in ("name", "value"):
         if field in data:
             setattr(key, field, data[field])
     if "active" in data and data["active"] is not None:
@@ -497,7 +489,7 @@ def update_key(
     elif machine_ids is None:
         machine_ids = _key_machine_ids(db, key.id)
 
-    _validate_key_rule(key.all_machines, machine_ids, key.label)
+    _validate_key_rule(key.all_machines, machine_ids)
     _set_key_machines(db, key.id, machine_ids)
 
     db.commit()
