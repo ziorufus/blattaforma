@@ -195,7 +195,7 @@
                     :key="lm.name"
                     class="badge text-bg-info me-1 mb-1 d-inline-flex align-items-center"
                   >
-                    {{ lm.name }} ({{ formatBytes(lm.size_bytes) }})
+                    {{ lm.name }} ({{ formatBytes(lm.size_bytes) }}{{ lm.context_size ? ', ctx ' + formatContext(lm.context_size) : '' }})
                     <button
                       type="button"
                       class="btn btn-sm btn-link text-white p-0 ms-1"
@@ -224,6 +224,17 @@
                         :title="modelTooBig(m, am) ? 'RAM insufficiente su questa macchina' : ''"
                       >
                         {{ am.name }} ({{ formatBytes(am.size_bytes) }})
+                      </option>
+                    </select>
+                    <select
+                      v-model.number="m.selectedContextSize"
+                      class="form-select"
+                      style="max-width: 90px"
+                      :disabled="m.loadingModel"
+                      title="Dimensione del contesto"
+                    >
+                      <option v-for="opt in CONTEXT_SIZE_OPTIONS" :key="opt.value" :value="opt.value">
+                        {{ opt.label }}
                       </option>
                     </select>
                     <button
@@ -273,6 +284,15 @@ const canPull = computed(() => {
 })
 
 const AUTO_REFRESH_INTERVAL_MS = 15000
+const DEFAULT_CONTEXT_SIZE = 65536
+const CONTEXT_SIZE_OPTIONS = [
+  { value: 4096, label: '4K' },
+  { value: 8192, label: '8K' },
+  { value: 16384, label: '16K' },
+  { value: 32768, label: '32K' },
+  { value: 65536, label: '64K' },
+  { value: 131072, label: '128K' },
+]
 
 const machines = ref([])
 const loading = ref(true)
@@ -328,6 +348,11 @@ function formatPower(v) {
   return `${v.toFixed(1)} W`
 }
 
+function formatContext(v) {
+  if (v === null || v === undefined) return '-'
+  return `${Math.round(v / 1024)}K`
+}
+
 async function fetchStatus(machine) {
   try {
     const { data } = await api.get(`/api/modules/ollama/machines/${machine.id}/status`)
@@ -345,6 +370,7 @@ async function loadMachines() {
     machines.value = data.map((m) => ({
       ...m,
       selectedModel: '',
+      selectedContextSize: DEFAULT_CONTEXT_SIZE,
       loadingModel: false,
       unloadingModel: null,
       refreshing: false,
@@ -375,7 +401,10 @@ async function loadModel(m) {
   m.loadingModel = true
   m.error = ''
   try {
-    await api.post(`/api/modules/ollama/machines/${m.id}/load`, { model: m.selectedModel })
+    await api.post(`/api/modules/ollama/machines/${m.id}/load`, {
+      model: m.selectedModel,
+      context_size: m.selectedContextSize,
+    })
     m.selectedModel = ''
     await fetchStatus(m)
   } catch (e) {

@@ -153,6 +153,7 @@ class KeyDetail(BaseModel):
 class ModelInfo(BaseModel):
     name: str
     size_bytes: int
+    context_size: int | None = None
 
 
 class MachineStatusOut(BaseModel):
@@ -175,6 +176,7 @@ class MachineStatusOut(BaseModel):
 
 class LoadModelRequest(BaseModel):
     model: str
+    context_size: int = 65536
 
 
 class PullModelRequest(BaseModel):
@@ -611,7 +613,11 @@ async def machine_status(
             resp.raise_for_status()
             data = resp.json()
             out.loaded_models = [
-                ModelInfo(name=m.get("name") or m.get("model"), size_bytes=m.get("size") or 0)
+                ModelInfo(
+                    name=m.get("name") or m.get("model"),
+                    size_bytes=m.get("size") or 0,
+                    context_size=m.get("context_length"),
+                )
                 for m in data.get("models", [])
             ]
             out.ollama_bytes = sum(m.size_bytes for m in out.loaded_models)
@@ -652,7 +658,11 @@ async def load_model(
         async with httpx.AsyncClient(timeout=300.0) as client:
             resp = await client.post(
                 f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
-                json={"model": payload.model, "stream": False},
+                json={
+                    "model": payload.model,
+                    "stream": False,
+                    "options": {"num_ctx": payload.context_size},
+                },
                 headers=_auth_header(machine.api_key_read),
             )
             resp.raise_for_status()
