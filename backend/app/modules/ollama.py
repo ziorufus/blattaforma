@@ -11,7 +11,7 @@ import re
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, func
@@ -526,15 +526,29 @@ def delete_key(
 # answer 204 (allowed) or 401 (denied) -- nginx's auth_request treats
 # anything else as an upstream error.
 #
+# When the incoming Ollama request carries a model (e.g. /api/generate,
+# /api/chat), nginx (njs) extracts it from the request body and forwards it
+# in the `X-Ollama-Model` header -- auth_request subrequests are always GET
+# and never carry a body, so the model can't be read from the body here.
+# When present, the model is checked against the machine's currently loaded
+# models (via /api/ps) so that a key scoped to one machine can't be used to
+# probe/load a model on it out of band. The loaded model's context size is
+# echoed back in the X-Ollama-Loaded-Num-Ctx response header.
+#
 # Every check made with an ollama_keys value (active or not) is logged to
-# ollama_keys_log. Checks made with a machine's own read key are never
+# ollama_keys_log, with the final outcome (including the model check above,
+# when applicable). Checks made with a machine's own read key are never
 # logged, since that key isn't managed through ollama_keys.
 
 
 @router.get("/check", status_code=status.HTTP_204_NO_CONTENT)
-def check_token(
+async def check_token(
+    response: Response,
     authorization: str | None = Header(default=None),
     code: str | None = Header(default=None),
+    x_ollama_model: str | None = Header(default=None),
+    x_ollama_num_ctx: str | None = Header(default=None),
+    x_ollama_auth_mode: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ):
     if not authorization or not code:
@@ -546,11 +560,10 @@ def check_token(
 
     key = db.query(OllamaKey).filter(OllamaKey.value == token).first()
     allowed = False
+    own_ready_key = False
 
     if key and key.active:
         if key.all_machines:
-            allowed = True
-        elif key.label == code:
             allowed = True
         else:
             match = (
@@ -561,19 +574,60 @@ def check_token(
             )
             allowed = bool(match)
 
+    if not allowed:
+        # Fallback: a machine's own read key is always valid for that same machine (never logged).
+        own_key_match = (
+            db.query(OllamaMachine.id)
+            .filter(OllamaMachine.api_key_read == token, OllamaMachine.slug == code)
+            .first()
+        )
+        allowed = bool(own_key_match)
+        own_ready_key = bool(own_key_match)
+
+    detail: str | None = None
+
+    if not own_ready_key:
+        if allowed and x_ollama_auth_mode == "inference":
+            loaded_context_size = None
+            machine = db.query(OllamaMachine).filter(OllamaMachine.slug == code).first()
+
+            if not machine:
+                allowed = False
+                detail = f"Machine {code} not found"
+            else:
+                try:
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        resp = await client.get(
+                            f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/ps",
+                            headers=_auth_header(machine.api_key_read),
+                        )
+                        resp.raise_for_status()
+                        ps_data = resp.json()
+                    for m in ps_data.get("models", []):
+                        if (m.get("name") or m.get("model")) == x_ollama_model:
+                            loaded_context_size = m.get("context_length")
+                            break
+                except httpx.HTTPError:
+                    pass
+
+            if loaded_context_size is None:
+                allowed = False
+                detail = f"Model {x_ollama_model} not loaded on machine"
+            elif x_ollama_num_ctx is not None and int(x_ollama_num_ctx) > loaded_context_size:
+                allowed = False
+                detail = f"Requested context size {x_ollama_num_ctx} exceeds loaded model's context size {loaded_context_size}"
+            else:
+                response.headers["X-Ollama-Loaded-Num-Ctx"] = str(loaded_context_size)
+
+    # Log reflects the final outcome (including the model/context check above),
+    # not just the initial key/machine authorization.
     if key is not None:
         response_code = status.HTTP_204_NO_CONTENT if allowed else status.HTTP_401_UNAUTHORIZED
         db.add(OllamaKeyLog(key_id=key.id, code=code, response_code=response_code))
         db.commit()
 
-    if allowed:
-        return
-
-    # Fallback: a machine's own read key is always valid for that same machine (never logged).
-    if db.query(OllamaMachine.id).filter(OllamaMachine.api_key_read == token, OllamaMachine.slug == code).first():
-        return
-
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
 
 
 # ---------- Status (any granted role) ----------
