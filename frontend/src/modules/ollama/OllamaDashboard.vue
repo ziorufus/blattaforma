@@ -217,7 +217,7 @@
                     <select v-model="m.selectedModel" class="form-select" :disabled="m.loadingModel">
                       <option value="">[Seleziona il modello]</option>
                       <option
-                        v-for="am in m.available_models"
+                        v-for="am in sortedAvailableModels(m)"
                         :key="am.name"
                         :value="am.name"
                         :disabled="modelTooBig(m, am)"
@@ -310,6 +310,10 @@ const allAvailableModels = computed(() => {
   }
   return [...names].sort()
 })
+
+function sortedAvailableModels(m) {
+  return [...(m.available_models || [])].sort((a, b) => a.name.localeCompare(b.name))
+}
 
 function formatBytes(bytes) {
   if (bytes === null || bytes === undefined) return '-'
