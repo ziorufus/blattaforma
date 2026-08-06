@@ -44,7 +44,7 @@ class OllamaMachine(Base):
     slug: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     ip_address: Mapped[str] = mapped_column(String(255), nullable=False)
     api_key_read: Mapped[str] = mapped_column(String(512), nullable=False)
-    api_key_write: Mapped[str] = mapped_column(String(512), nullable=True)
+    api_key_write: Mapped[str | None] = mapped_column(String(512), nullable=True)
     os: Mapped[str] = mapped_column(String(20), nullable=False)
 
 
@@ -757,7 +757,10 @@ async def pull_model(
 ):
     _require_role(roles, "models")
     machine = _get_machine_or_404(db, machine_id)
-    if not machine.api_key_write:
+
+    api_key_write = machine.api_key_write
+
+    if not api_key_write:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Questa macchina non ha una chiave API in scrittura configurata",
@@ -769,7 +772,7 @@ async def pull_model(
                 "POST",
                 f"http://{machine.ip_address}:{OLLAMA_WRITE_PORT}/api/pull",
                 json={"model": payload.model, "stream": True},
-                headers=_auth_header(machine.api_key_write),
+                headers=_auth_header(api_key_write),
             ) as resp:
                 async for line in resp.aiter_lines():
                     if line:
