@@ -8,6 +8,7 @@ this router, which attaches the key as an `Authorization: Bearer ...` header.
 """
 
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 import httpx
@@ -150,6 +151,25 @@ class KeyDetail(BaseModel):
     active: bool
     machine_ids: list[int]
     machine_names: list[str]
+
+
+class KeyUsageEntry(BaseModel):
+    created_at: datetime
+    code: str
+    response_code: int
+
+
+class KeyUsageBucket(BaseModel):
+    label: str
+    total: int
+    allowed: int
+    denied: int
+
+
+class KeyUsageOut(BaseModel):
+    recent: list[KeyUsageEntry]
+    hourly: list[KeyUsageBucket]
+    daily: list[KeyUsageBucket]
 
 
 class ModelInfo(BaseModel):
@@ -304,6 +324,25 @@ def _to_key_detail(db: Session, key: OllamaKey) -> KeyDetail:
         machine_ids=machine_ids,
         machine_names=machine_names,
     )
+
+
+def _bucketize(
+    rows: list[OllamaKeyLog], start: datetime, bucket_seconds: int, num_buckets: int
+) -> list[KeyUsageBucket]:
+    counts = [{"total": 0, "allowed": 0, "denied": 0} for _ in range(num_buckets)]
+    for row in rows:
+        idx = int((row.created_at - start).total_seconds() // bucket_seconds)
+        if 0 <= idx < num_buckets:
+            bucket = counts[idx]
+            bucket["total"] += 1
+            if row.response_code == status.HTTP_204_NO_CONTENT:
+                bucket["allowed"] += 1
+            else:
+                bucket["denied"] += 1
+    return [
+        KeyUsageBucket(label=(start + timedelta(seconds=bucket_seconds * i)).isoformat(), **counts[i])
+        for i in range(num_buckets)
+    ]
 
 
 def _auth_header(api_key: str) -> dict[str, str]:
@@ -469,6 +508,49 @@ def get_key(
     _require_role(roles, "machines")
     key = _get_key_or_404(db, key_id)
     return _to_key_detail(db, key)
+
+
+@router.get("/keys/{key_id}/usage", response_model=KeyUsageOut)
+def get_key_usage(
+    key_id: int,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    db: Session = Depends(get_db),
+):
+    _require_role(roles, "machines")
+    _get_key_or_404(db, key_id)
+
+    recent_rows = (
+        db.query(OllamaKeyLog)
+        .filter(OllamaKeyLog.key_id == key_id)
+        .order_by(OllamaKeyLog.created_at.desc(), OllamaKeyLog.id.desc())
+        .limit(10)
+        .all()
+    )
+    recent = [
+        KeyUsageEntry(created_at=r.created_at, code=r.code, response_code=r.response_code)
+        for r in recent_rows
+    ]
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    day_start = now - timedelta(hours=24)
+    month_start = now - timedelta(days=30)
+
+    hourly_rows = (
+        db.query(OllamaKeyLog)
+        .filter(OllamaKeyLog.key_id == key_id, OllamaKeyLog.created_at >= day_start)
+        .all()
+    )
+    daily_rows = (
+        db.query(OllamaKeyLog)
+        .filter(OllamaKeyLog.key_id == key_id, OllamaKeyLog.created_at >= month_start)
+        .all()
+    )
+
+    return KeyUsageOut(
+        recent=recent,
+        hourly=_bucketize(hourly_rows, day_start, 3600, 24),
+        daily=_bucketize(daily_rows, month_start, 86400, 30),
+    )
 
 
 @router.patch("/keys/{key_id}", response_model=KeyDetail)

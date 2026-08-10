@@ -28,7 +28,11 @@
         </thead>
         <tbody>
           <tr v-for="k in keys" :key="k.id">
-            <td>{{ k.name }}</td>
+            <td>
+              <router-link :to="{ name: 'module-ollama-chiave-dettaglio', params: { id: k.id } }">
+                {{ k.name }}
+              </router-link>
+            </td>
             <td>
               <span v-if="k.all_machines" class="badge text-bg-info">Tutte le macchine</span>
               <span v-else-if="k.machine_names.length">{{ k.machine_names.join(', ') }}</span>
