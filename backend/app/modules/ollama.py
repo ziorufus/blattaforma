@@ -30,6 +30,13 @@ NODE_EXPORTER_PORT = 9100
 
 SLUG_PATTERN = r"^[a-z0-9-]+$"
 
+# Timeout (in secondi) per le chiamate httpx verso le macchine Ollama.
+AUTH_CHECK_TIMEOUT = 5.0
+STATUS_TIMEOUT = 5.0
+LOAD_MODEL_TIMEOUT = 1800.0
+UNLOAD_MODEL_TIMEOUT = 30.0
+PULL_MODEL_TIMEOUT = None
+
 router = APIRouter()
 
 
@@ -588,7 +595,7 @@ async def check_token(
                 detail = f"Machine {code} not found"
             else:
                 try:
-                    async with httpx.AsyncClient(timeout=5.0) as client:
+                    async with httpx.AsyncClient(timeout=AUTH_CHECK_TIMEOUT) as client:
                         resp = await client.get(
                             f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/ps",
                             headers=_auth_header(machine.api_key_read),
@@ -642,7 +649,7 @@ async def machine_status(
     )
     errors: list[str] = []
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
+    async with httpx.AsyncClient(timeout=STATUS_TIMEOUT) as client:
         try:
             resp = await client.get(f"http://{machine.ip_address}:{NODE_EXPORTER_PORT}/metrics")
             resp.raise_for_status()
@@ -701,7 +708,7 @@ async def load_model(
 ):
     machine = _get_machine_or_404(db, machine_id)
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=LOAD_MODEL_TIMEOUT) as client:
             resp = await client.post(
                 f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
                 json={
@@ -731,7 +738,7 @@ async def unload_model(
 ):
     machine = _get_machine_or_404(db, machine_id)
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=UNLOAD_MODEL_TIMEOUT) as client:
             resp = await client.post(
                 f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
                 json={"model": payload.model, "keep_alive": 0, "stream": False},
@@ -767,7 +774,7 @@ async def pull_model(
         )
 
     async def event_stream():
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=PULL_MODEL_TIMEOUT) as client:
             async with client.stream(
                 "POST",
                 f"http://{machine.ip_address}:{OLLAMA_WRITE_PORT}/api/pull",
