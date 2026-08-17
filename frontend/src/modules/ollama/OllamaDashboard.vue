@@ -248,7 +248,7 @@
                   </div>
                 </td>
                 <td class="text-end">
-                  <button class="btn btn-sm btn-outline-secondary" :disabled="m.refreshing" @click="refreshMachine(m)">
+                  <button class="btn btn-sm btn-outline-secondary btn-light" :disabled="m.refreshing" @click="refreshMachine(m)">
                     <span v-if="m.refreshing" class="spinner-border spinner-border-sm"></span>
                     <i v-else class="bi bi-arrow-clockwise"></i>
                   </button>
