@@ -21,6 +21,7 @@
           <tr>
             <th>Nome</th>
             <th>Macchine</th>
+            <th>Utente</th>
             <th>Attivo</th>
             <th>Valore</th>
             <th class="text-end">Azioni</th>
@@ -39,6 +40,10 @@
               <span v-else class="text-muted">Nessuna</span>
             </td>
             <td>
+              <span v-if="k.user_email">{{ k.user_email }}</span>
+              <span v-else class="text-muted">Nessuno</span>
+            </td>
+            <td>
               <span class="badge" :class="k.active ? 'text-bg-success' : 'text-bg-secondary'">
                 {{ k.active ? 'Attivo' : 'Disattivo' }}
               </span>
@@ -54,7 +59,7 @@
             </td>
           </tr>
           <tr v-if="keys.length === 0">
-            <td colspan="5" class="text-muted">Nessuna chiave configurata.</td>
+            <td colspan="6" class="text-muted">Nessuna chiave configurata.</td>
           </tr>
         </tbody>
       </table>
@@ -104,6 +109,15 @@
               <label class="form-check-label" for="active">Attivo</label>
             </div>
             <div class="mb-3">
+              <label class="form-label">Utente associato</label>
+              <select v-model="form.user_id" class="form-select">
+                <option :value="null">Nessuno</option>
+                <option v-for="u in assignableUsers" :key="u.id" :value="u.id">
+                  {{ u.name }} ({{ u.email }})
+                </option>
+              </select>
+            </div>
+            <div class="mb-3">
               <label class="form-label">Macchine associate</label>
               <div v-if="availableMachines.length === 0" class="text-muted">
                 Nessuna macchina configurata.
@@ -147,6 +161,7 @@ const router = useRouter()
 
 const keys = ref([])
 const availableMachines = ref([])
+const assignableUsers = ref([])
 const loading = ref(true)
 const saving = ref(false)
 const errorMessage = ref('')
@@ -162,6 +177,7 @@ const form = reactive({
   all_machines: false,
   active: true,
   machine_ids: [],
+  user_id: null,
 })
 
 function canManage() {
@@ -192,6 +208,15 @@ async function loadMachines() {
   }
 }
 
+async function loadAssignableUsers() {
+  try {
+    const { data } = await api.get('/api/modules/ollama/keys/assignable-users')
+    assignableUsers.value = data
+  } catch (e) {
+    // lista utenti secondaria: se fallisce, il form resta senza opzioni selezionabili
+  }
+}
+
 function resetForm() {
   form.id = null
   form.name = ''
@@ -199,6 +224,7 @@ function resetForm() {
   form.all_machines = false
   form.active = true
   form.machine_ids = []
+  form.user_id = null
 }
 
 function generateValue() {
@@ -223,6 +249,7 @@ async function openEdit(key) {
     form.all_machines = data.all_machines
     form.active = data.active
     form.machine_ids = [...data.machine_ids]
+    form.user_id = data.user_id
     modalInstance.show()
   } catch (e) {
     errorMessage.value = 'Impossibile caricare la chiave.'
@@ -244,6 +271,7 @@ async function save() {
       all_machines: form.all_machines,
       active: form.active,
       machine_ids: form.all_machines ? [] : form.machine_ids,
+      user_id: form.user_id,
     }
     if (!form.id) {
       await api.post('/api/modules/ollama/keys', payload)
@@ -276,7 +304,7 @@ onMounted(async () => {
     return
   }
   modalInstance = new Modal(modalEl.value)
-  await Promise.all([loadKeys(), loadMachines()])
+  await Promise.all([loadKeys(), loadMachines(), loadAssignableUsers()])
 })
 </script>
 

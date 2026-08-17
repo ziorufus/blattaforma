@@ -263,6 +263,67 @@
       </div>
     </div>
 
+    <h5 class="mt-4">Le mie chiavi API</h5>
+    <div class="card mb-2">
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-striped align-middle">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Valore</th>
+                <th>Stato</th>
+                <th class="text-end">Azioni</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="k in myKeys" :key="k.id">
+                <td>{{ k.name }}</td>
+                <td><code>{{ k.revealed ? k.plainValue : k.masked_value }}</code></td>
+                <td>
+                  <span class="badge" :class="k.active ? 'text-bg-success' : 'text-bg-secondary'">
+                    {{ k.active ? 'Attiva' : 'Disattivata' }}
+                  </span>
+                </td>
+                <td class="text-end nobr">
+                  <button
+                    class="btn btn-sm btn-outline-secondary me-2"
+                    title="Mostra/nascondi valore"
+                    :disabled="k.revealing"
+                    @click="toggleReveal(k)"
+                  >
+                    <span v-if="k.revealing" class="spinner-border spinner-border-sm"></span>
+                    <i v-else class="bi" :class="k.revealed ? 'bi-eye-slash' : 'bi-eye'"></i>
+                  </button>
+                  <button
+                    class="btn btn-sm btn-outline-secondary me-2"
+                    title="Rigenera chiave"
+                    :disabled="!k.active || k.regenerating"
+                    @click="regenerateMyKey(k)"
+                  >
+                    <span v-if="k.regenerating" class="spinner-border spinner-border-sm"></span>
+                    <i v-else class="bi bi-dice-5"></i>
+                  </button>
+                  <button
+                    class="btn btn-sm btn-outline-danger"
+                    title="Disattiva chiave"
+                    :disabled="!k.active || k.deactivating"
+                    @click="deactivateMyKey(k)"
+                  >
+                    <span v-if="k.deactivating" class="spinner-border spinner-border-sm"></span>
+                    <i v-else class="bi" :class="k.active ? 'bi-toggle-on' : 'bi-toggle-off'"></i>
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="myKeys.length === 0">
+                <td colspan="4" class="text-muted">Nessuna chiave API associata.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -295,6 +356,7 @@ const CONTEXT_SIZE_OPTIONS = [
 ]
 
 const machines = ref([])
+const myKeys = ref([])
 const loading = ref(true)
 const errorMessage = ref('')
 let autoRefreshTimer = null
@@ -391,6 +453,71 @@ async function loadMachines() {
     errorMessage.value = 'Impossibile caricare le macchine.'
   } finally {
     loading.value = false
+  }
+}
+
+async function loadMyKeys() {
+  try {
+    const { data } = await api.get('/api/modules/ollama/keys/mine')
+    myKeys.value = data.map((k) => ({
+      ...k,
+      revealed: false,
+      revealing: false,
+      regenerating: false,
+      deactivating: false,
+      plainValue: null,
+    }))
+  } catch (e) {
+    // sezione secondaria: se fallisce, semplicemente non mostriamo le chiavi
+  }
+}
+
+async function toggleReveal(k) {
+  if (k.revealed) {
+    k.revealed = false
+    return
+  }
+  if (k.plainValue) {
+    k.revealed = true
+    return
+  }
+  k.revealing = true
+  try {
+    const { data } = await api.get(`/api/modules/ollama/keys/mine/${k.id}/reveal`)
+    k.plainValue = data.value
+    k.revealed = true
+  } catch (e) {
+    errorMessage.value = e.response?.data?.detail || 'Impossibile recuperare la chiave.'
+  } finally {
+    k.revealing = false
+  }
+}
+
+async function regenerateMyKey(k) {
+  if (!confirm(`Rigenerare la chiave "${k.name}"? La chiave attuale smetterà immediatamente di funzionare.`)) return
+  k.regenerating = true
+  try {
+    const { data } = await api.post(`/api/modules/ollama/keys/mine/${k.id}/regenerate`)
+    k.plainValue = data.value
+    k.revealed = true
+    k.masked_value = '••••••••' + data.value.slice(-5)
+  } catch (e) {
+    errorMessage.value = e.response?.data?.detail || 'Impossibile rigenerare la chiave.'
+  } finally {
+    k.regenerating = false
+  }
+}
+
+async function deactivateMyKey(k) {
+  if (!confirm(`Disattivare definitivamente la chiave "${k.name}"? L'operazione non è reversibile.`)) return
+  k.deactivating = true
+  try {
+    await api.post(`/api/modules/ollama/keys/mine/${k.id}/deactivate`)
+    k.active = false
+  } catch (e) {
+    errorMessage.value = e.response?.data?.detail || 'Impossibile disattivare la chiave.'
+  } finally {
+    k.deactivating = false
   }
 }
 
@@ -493,7 +620,7 @@ async function refreshAll() {
 }
 
 onMounted(async () => {
-  await loadMachines()
+  await Promise.all([loadMachines(), loadMyKeys()])
   autoRefreshTimer = setInterval(refreshAll, AUTO_REFRESH_INTERVAL_MS)
 })
 

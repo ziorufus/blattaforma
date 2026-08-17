@@ -8,6 +8,7 @@ this router, which attaches the key as an `Authorization: Bearer ...` header.
 """
 
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -18,8 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, func
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from .. import models
 from ..database import Base, engine
-from ..deps import get_db, require_module_role
+from ..deps import get_current_user, get_db, require_module_role
 
 MODULE_NAME = "ollama"
 MODULE_LABEL = "Ollama"
@@ -65,6 +67,9 @@ class OllamaKey(Base):
     all_machines: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
+    user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class OllamaKeyLog(Base):
@@ -123,6 +128,7 @@ class KeyCreate(BaseModel):
     all_machines: bool = False
     active: bool = True
     machine_ids: list[int] = []
+    user_id: int | None = None
 
 
 class KeyUpdate(BaseModel):
@@ -131,6 +137,7 @@ class KeyUpdate(BaseModel):
     all_machines: bool | None = None
     active: bool | None = None
     machine_ids: list[int] | None = None
+    user_id: int | None = None
 
 
 class KeyOut(BaseModel):
@@ -141,6 +148,8 @@ class KeyOut(BaseModel):
     active: bool
     machine_ids: list[int]
     machine_names: list[str]
+    user_id: int | None = None
+    user_email: str | None = None
 
 
 class KeyDetail(BaseModel):
@@ -151,6 +160,25 @@ class KeyDetail(BaseModel):
     active: bool
     machine_ids: list[int]
     machine_names: list[str]
+    user_id: int | None = None
+    user_email: str | None = None
+
+
+class MyKeyOut(BaseModel):
+    id: int
+    name: str
+    masked_value: str
+    active: bool
+
+
+class AssignableUser(BaseModel):
+    id: int
+    email: str
+    name: str | None = None
+
+
+class KeyValueOut(BaseModel):
+    value: str
 
 
 class KeyUsageEntry(BaseModel):
@@ -292,6 +320,13 @@ def _set_key_machines(db: Session, key_id: int, machine_ids: list[int]) -> None:
         )
 
 
+def _key_user_email(db: Session, user_id: int | None) -> str | None:
+    if user_id is None:
+        return None
+    row = db.query(models.User.email).filter(models.User.id == user_id).first()
+    return row[0] if row else None
+
+
 def _to_key_out(db: Session, key: OllamaKey) -> KeyOut:
     machine_ids = [] if key.all_machines else _key_machine_ids(db, key.id)
     machine_names = []
@@ -306,6 +341,8 @@ def _to_key_out(db: Session, key: OllamaKey) -> KeyOut:
         active=key.active,
         machine_ids=machine_ids,
         machine_names=machine_names,
+        user_id=key.user_id,
+        user_email=_key_user_email(db, key.user_id),
     )
 
 
@@ -323,7 +360,29 @@ def _to_key_detail(db: Session, key: OllamaKey) -> KeyDetail:
         active=key.active,
         machine_ids=machine_ids,
         machine_names=machine_names,
+        user_id=key.user_id,
+        user_email=_key_user_email(db, key.user_id),
     )
+
+
+def _to_my_key_out(key: OllamaKey) -> MyKeyOut:
+    return MyKeyOut(
+        id=key.id,
+        name=key.name,
+        masked_value=_mask_value(key.value),
+        active=key.active,
+    )
+
+
+def _get_own_key_or_404(db: Session, key_id: int, user_id: int) -> OllamaKey:
+    key = db.query(OllamaKey).filter(OllamaKey.id == key_id, OllamaKey.user_id == user_id).first()
+    if not key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chiave non trovata")
+    return key
+
+
+def _generate_key_value() -> str:
+    return secrets.token_hex(32)
 
 
 def _bucketize(
@@ -474,6 +533,87 @@ def list_keys(
     return [_to_key_out(db, k) for k in db.query(OllamaKey).order_by(OllamaKey.id).all()]
 
 
+@router.get("/keys/assignable-users", response_model=list[AssignableUser])
+def list_assignable_users(
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    db: Session = Depends(get_db),
+):
+    _require_role(roles, "machines")
+    users = (
+        db.query(models.User)
+        .filter(models.User.is_active.is_(True))
+        .order_by(models.User.name, models.User.email)
+        .all()
+    )
+    return [AssignableUser(id=u.id, email=u.email, name=u.name) for u in users]
+
+
+# ---------- My API keys (any granted role, owner-only) ----------
+#
+# Declared before the /keys/{key_id} routes below: FastAPI/Starlette match
+# routes by trying each registered path template in order, and `{key_id}`
+# here has no `:int` converter (the int coercion happens afterwards, via the
+# parameter type hint) -- so a literal segment like "mine" would otherwise
+# match `/keys/{key_id}` first and fail type coercion with a 422 instead of
+# ever reaching these handlers.
+
+
+@router.get("/keys/mine", response_model=list[MyKeyOut])
+def list_my_keys(
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    keys = db.query(OllamaKey).filter(OllamaKey.user_id == user.id).order_by(OllamaKey.id).all()
+    return [_to_my_key_out(k) for k in keys]
+
+
+@router.get("/keys/mine/{key_id}/reveal", response_model=KeyValueOut)
+def reveal_my_key(
+    key_id: int,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    key = _get_own_key_or_404(db, key_id, user.id)
+    return KeyValueOut(value=key.value)
+
+
+@router.post("/keys/mine/{key_id}/regenerate", response_model=KeyValueOut)
+def regenerate_my_key(
+    key_id: int,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    key = _get_own_key_or_404(db, key_id, user.id)
+    if not key.active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Impossibile rigenerare una chiave disattivata",
+        )
+    key.value = _generate_key_value()
+    db.commit()
+    return KeyValueOut(value=key.value)
+
+
+@router.post("/keys/mine/{key_id}/deactivate", status_code=status.HTTP_204_NO_CONTENT)
+def deactivate_my_key(
+    key_id: int,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    key = _get_own_key_or_404(db, key_id, user.id)
+    if not key.active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chiave già disattivata",
+        )
+    key.active = False
+    db.commit()
+
+
 @router.post("/keys", response_model=KeyDetail, status_code=status.HTTP_201_CREATED)
 def create_key(
     payload: KeyCreate,
@@ -490,6 +630,7 @@ def create_key(
         value=payload.value,
         all_machines=payload.all_machines,
         active=payload.active,
+        user_id=payload.user_id,
     )
     db.add(key)
     db.flush()
@@ -564,7 +705,7 @@ def update_key(
     key = _get_key_or_404(db, key_id)
 
     data = payload.model_dump(exclude_unset=True)
-    for field in ("name", "value"):
+    for field in ("name", "value", "user_id"):
         if field in data:
             setattr(key, field, data[field])
     if "active" in data and data["active"] is not None:
@@ -870,4 +1011,16 @@ async def pull_model(
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
+def _ensure_key_user_id_column() -> None:
+    """`Base.metadata.create_all` only creates missing tables, it never alters
+    existing ones -- this adds the `user_id` column to `ollama_keys` for
+    databases created before it existed. Safe to call on every startup."""
+    with engine.connect() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(ollama_keys)")}
+        if "user_id" not in cols:
+            conn.exec_driver_sql("ALTER TABLE ollama_keys ADD COLUMN user_id INTEGER REFERENCES users(id)")
+            conn.commit()
+
+
 Base.metadata.create_all(bind=engine)
+_ensure_key_user_id_column()
