@@ -7,6 +7,7 @@ the frontend: every call to a machine's Ollama instance is proxied through
 this router, which attaches the key as an `Authorization: Bearer ...` header.
 """
 
+import math
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, T
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import models
+from ..config import settings
 from ..database import Base, engine
 from ..deps import get_current_user, get_db, require_module_role
 
@@ -962,6 +964,31 @@ async def unload_model(
     machine = _get_machine_or_404(db, machine_id)
     try:
         async with httpx.AsyncClient(timeout=UNLOAD_MODEL_TIMEOUT) as client:
+            resp = await client.get(
+                f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/ps",
+                headers=_auth_header(machine.api_key_read),
+            )
+            resp.raise_for_status()
+            ps_data = resp.json()
+
+            model_entry = next(
+                (m for m in ps_data.get("models", []) if (m.get("name") or m.get("model")) == payload.model),
+                None,
+            )
+            if model_entry is None:
+                # Already not loaded: nothing to do.
+                return {"status": "ok"}
+
+            expires_at = model_entry.get("expires_at")
+            if expires_at:
+                until_minutes = (datetime.fromisoformat(expires_at) - datetime.now(timezone.utc)).total_seconds() / 60
+                if until_minutes >= settings.ollama_max_minutes:
+                    remaining = math.ceil(until_minutes - settings.ollama_max_minutes)
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Il modello può essere smontato solo tra {remaining} minuti",
+                    )
+
             resp = await client.post(
                 f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
                 json={"model": payload.model, "keep_alive": 0, "stream": False},

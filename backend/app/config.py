@@ -19,6 +19,8 @@ class Settings(BaseSettings):
 
     db_path: str = ""
 
+    ollama_max_minutes: int = 25
+
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", case_sensitive=False)
 
     @property

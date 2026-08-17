@@ -211,6 +211,7 @@
                   <span v-if="!m.loaded_models || m.loaded_models.length === 0" class="text-muted small">
                     Nessuno
                   </span>
+                  <div v-if="m.error" class="alert alert-danger py-1 px-2 mt-2 mb-0 small">{{ m.error }}</div>
                 </td>
                 <td>
                   <div class="input-group input-group-sm">
