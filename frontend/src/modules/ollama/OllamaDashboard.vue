@@ -40,8 +40,6 @@
       </div>
     </div>
 
-    <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
     <div v-if="writableMachines.length" class="mt-4">
       <h5>Scarica nuovi modelli</h5>
       <div v-for="m in writableMachines" :key="m.id" class="card mb-2">
@@ -68,7 +66,6 @@
               {{ m.pullStatus }}
             </div>
           </div>
-          <div v-if="m.pullError" class="alert alert-danger py-1 px-2 mt-2 mb-0 small">{{ m.pullError }}</div>
         </div>
       </div>
     </div>
@@ -211,7 +208,6 @@
                   <span v-if="!m.loaded_models || m.loaded_models.length === 0" class="text-muted small">
                     Nessuno
                   </span>
-                  <div v-if="m.error" class="alert alert-danger py-1 px-2 mt-2 mb-0 small">{{ m.error }}</div>
                 </td>
                 <td>
                   <div class="input-group input-group-sm">
@@ -332,8 +328,10 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '../../api/axios'
 import { useAuthStore } from '../../stores/auth'
+import { useToastStore } from '../../stores/toast'
 
 const auth = useAuthStore()
+const toast = useToastStore()
 const canManageMachines = computed(() => {
   if (auth.isAdmin) return true
   const mod = auth.modules.find((mm) => mm.name === 'ollama')
@@ -359,7 +357,6 @@ const CONTEXT_SIZE_OPTIONS = [
 const machines = ref([])
 const myKeys = ref([])
 const loading = ref(true)
-const errorMessage = ref('')
 let autoRefreshTimer = null
 
 const writableMachines = computed(() => (canPull.value ? machines.value.filter((m) => m.has_write_key) : []))
@@ -424,18 +421,17 @@ function formatContext(v) {
   return `${Math.round(v / 1024)}K`
 }
 
-async function fetchStatus(machine) {
+async function fetchStatus(machine, { silent = false } = {}) {
   try {
     const { data } = await api.get(`/api/modules/ollama/machines/${machine.id}/status`)
     Object.assign(machine, data)
   } catch (e) {
-    machine.error = 'Impossibile contattare la macchina.'
+    if (!silent) toast.error(`${machine.name}: impossibile contattare la macchina.`)
   }
 }
 
 async function loadMachines() {
   loading.value = true
-  errorMessage.value = ''
   try {
     const { data } = await api.get('/api/modules/ollama/machines')
     machines.value = data.map((m) => ({
@@ -449,13 +445,12 @@ async function loadMachines() {
       pulling: false,
       pullPct: 0,
       pullStatus: '',
-      pullError: '',
       loaded_models: [],
       available_models: [],
     }))
     await Promise.all(machines.value.map((m) => fetchStatus(m)))
   } catch (e) {
-    errorMessage.value = 'Impossibile caricare le macchine.'
+    toast.apiError(e, 'Impossibile caricare le macchine.')
   } finally {
     loading.value = false
   }
@@ -492,7 +487,7 @@ async function toggleReveal(k) {
     k.plainValue = data.value
     k.revealed = true
   } catch (e) {
-    errorMessage.value = e.response?.data?.detail || 'Impossibile recuperare la chiave.'
+    toast.apiError(e, 'Impossibile recuperare la chiave.')
   } finally {
     k.revealing = false
   }
@@ -506,8 +501,9 @@ async function regenerateMyKey(k) {
     k.plainValue = data.value
     k.revealed = true
     k.masked_value = '••••••••' + data.value.slice(-5)
+    toast.success(`Chiave "${k.name}" rigenerata.`)
   } catch (e) {
-    errorMessage.value = e.response?.data?.detail || 'Impossibile rigenerare la chiave.'
+    toast.apiError(e, 'Impossibile rigenerare la chiave.')
   } finally {
     k.regenerating = false
   }
@@ -519,8 +515,9 @@ async function deactivateMyKey(k) {
   try {
     await api.post(`/api/modules/ollama/keys/mine/${k.id}/deactivate`)
     k.active = false
+    toast.success(`Chiave "${k.name}" disattivata.`)
   } catch (e) {
-    errorMessage.value = e.response?.data?.detail || 'Impossibile disattivare la chiave.'
+    toast.apiError(e, 'Impossibile disattivare la chiave.')
   } finally {
     k.deactivating = false
   }
@@ -528,23 +525,23 @@ async function deactivateMyKey(k) {
 
 async function refreshMachine(m) {
   m.refreshing = true
-  m.error = ''
   await fetchStatus(m)
   m.refreshing = false
 }
 
 async function loadModel(m) {
   m.loadingModel = true
-  m.error = ''
   try {
     await api.post(`/api/modules/ollama/machines/${m.id}/load`, {
       model: m.selectedModel,
       context_size: m.selectedContextSize,
     })
+    const loaded = m.selectedModel
     m.selectedModel = ''
-    await fetchStatus(m)
+    await fetchStatus(m, { silent: true })
+    toast.success(`Modello "${loaded}" caricato su ${m.name}.`)
   } catch (e) {
-    m.error = e.response?.data?.detail || 'Impossibile caricare il modello.'
+    toast.apiError(e, 'Impossibile caricare il modello.')
   } finally {
     m.loadingModel = false
   }
@@ -552,12 +549,12 @@ async function loadModel(m) {
 
 async function unloadModel(m, modelName) {
   m.unloadingModel = modelName
-  m.error = ''
   try {
     await api.post(`/api/modules/ollama/machines/${m.id}/unload`, { model: modelName })
-    await fetchStatus(m)
+    await fetchStatus(m, { silent: true })
+    toast.success(`Modello "${modelName}" espulso da ${m.name}.`)
   } catch (e) {
-    m.error = e.response?.data?.detail || 'Impossibile espellere il modello.'
+    toast.apiError(e, 'Impossibile espellere il modello.')
   } finally {
     m.unloadingModel = null
   }
@@ -565,7 +562,6 @@ async function unloadModel(m, modelName) {
 
 async function pullModel(m) {
   m.pulling = true
-  m.pullError = ''
   m.pullPct = 0
   m.pullStatus = ''
   try {
@@ -610,18 +606,20 @@ async function pullModel(m) {
       }
     }
 
+    const pulled = m.pullModel
     m.pullModel = ''
     m.pullPct = 100
-    await fetchStatus(m)
+    await fetchStatus(m, { silent: true })
+    toast.success(`Modello "${pulled}" scaricato su ${m.name}.`)
   } catch (e) {
-    m.pullError = e.message || 'Download non riuscito.'
+    toast.error(e.message || 'Download non riuscito.')
   } finally {
     m.pulling = false
   }
 }
 
 async function refreshAll() {
-  await Promise.all(machines.value.map((m) => fetchStatus(m)))
+  await Promise.all(machines.value.map((m) => fetchStatus(m, { silent: true })))
 }
 
 onMounted(async () => {

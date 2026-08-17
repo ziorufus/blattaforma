@@ -35,7 +35,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import api from '../../api/axios'
+import { useToastStore } from '../../stores/toast'
 
+const toast = useToastStore()
 const modules = ref([])
 const loading = ref(true)
 
@@ -43,6 +45,8 @@ onMounted(async () => {
   try {
     const { data } = await api.get('/api/modules/all')
     modules.value = data
+  } catch (e) {
+    toast.apiError(e, 'Impossibile caricare i moduli.')
   } finally {
     loading.value = false
   }

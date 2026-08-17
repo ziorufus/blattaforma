@@ -12,8 +12,6 @@
       </div>
     </div>
 
-    <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
     <div v-if="loading" class="text-muted">Caricamento...</div>
     <div v-else class="table-responsive">
       <table class="table table-striped align-middle">
@@ -74,8 +72,6 @@
             <button type="button" class="btn-close" @click="modalInstance.hide()"></button>
           </div>
           <div class="modal-body">
-            <div v-if="modalError" class="alert alert-danger">{{ modalError }}</div>
-
             <div class="mb-3">
               <label class="form-label">Nome</label>
               <input v-model="form.name" type="text" class="form-control" required />
@@ -155,8 +151,10 @@ import { useRouter } from 'vue-router'
 import { Modal } from 'bootstrap'
 import api from '../../api/axios'
 import { useAuthStore } from '../../stores/auth'
+import { useToastStore } from '../../stores/toast'
 
 const auth = useAuthStore()
+const toast = useToastStore()
 const router = useRouter()
 
 const keys = ref([])
@@ -164,8 +162,6 @@ const availableMachines = ref([])
 const assignableUsers = ref([])
 const loading = ref(true)
 const saving = ref(false)
-const errorMessage = ref('')
-const modalError = ref('')
 
 const modalEl = ref(null)
 let modalInstance = null
@@ -188,12 +184,11 @@ function canManage() {
 
 async function loadKeys() {
   loading.value = true
-  errorMessage.value = ''
   try {
     const { data } = await api.get('/api/modules/ollama/keys')
     keys.value = data
   } catch (e) {
-    errorMessage.value = 'Impossibile caricare le chiavi.'
+    toast.apiError(e, 'Impossibile caricare le chiavi.')
   } finally {
     loading.value = false
   }
@@ -235,12 +230,10 @@ function generateValue() {
 
 function openCreate() {
   resetForm()
-  modalError.value = ''
   modalInstance.show()
 }
 
 async function openEdit(key) {
-  modalError.value = ''
   try {
     const { data } = await api.get(`/api/modules/ollama/keys/${key.id}`)
     form.id = data.id
@@ -252,18 +245,18 @@ async function openEdit(key) {
     form.user_id = data.user_id
     modalInstance.show()
   } catch (e) {
-    errorMessage.value = 'Impossibile caricare la chiave.'
+    toast.apiError(e, 'Impossibile caricare la chiave.')
   }
 }
 
 async function save() {
-  modalError.value = ''
   if (!form.all_machines && form.machine_ids.length === 0) {
-    modalError.value = 'Specificare almeno una tra: tutte le macchine o una macchina associata.'
+    toast.error('Specificare almeno una tra: tutte le macchine o una macchina associata.')
     return
   }
 
   saving.value = true
+  const isNew = !form.id
   try {
     const payload = {
       name: form.name,
@@ -281,8 +274,9 @@ async function save() {
 
     modalInstance.hide()
     await loadKeys()
+    toast.success(isNew ? `Chiave "${form.name}" creata.` : `Chiave "${form.name}" aggiornata.`)
   } catch (e) {
-    modalError.value = e.response?.data?.detail || 'Salvataggio non riuscito.'
+    toast.apiError(e, 'Salvataggio non riuscito.')
   } finally {
     saving.value = false
   }
@@ -293,8 +287,9 @@ async function removeKey(key) {
   try {
     await api.delete(`/api/modules/ollama/keys/${key.id}`)
     await loadKeys()
+    toast.success(`Chiave "${key.name}" eliminata.`)
   } catch (e) {
-    errorMessage.value = e.response?.data?.detail || 'Impossibile eliminare la chiave.'
+    toast.apiError(e, 'Impossibile eliminare la chiave.')
   }
 }
 

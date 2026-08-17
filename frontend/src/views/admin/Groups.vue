@@ -7,8 +7,6 @@
       </button>
     </div>
 
-    <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
     <div v-if="loading" class="text-muted">Caricamento...</div>
     <table v-else class="table table-striped align-middle">
       <thead>
@@ -46,8 +44,6 @@
             <button type="button" class="btn-close" @click="modalInstance.hide()"></button>
           </div>
           <div class="modal-body">
-            <div v-if="modalError" class="alert alert-danger">{{ modalError }}</div>
-
             <div class="mb-3">
               <label class="form-label">Nome</label>
               <input v-model="form.name" type="text" class="form-control" required />
@@ -124,14 +120,15 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Modal } from 'bootstrap'
 import api from '../../api/axios'
+import { useToastStore } from '../../stores/toast'
+
+const toast = useToastStore()
 
 const groups = ref([])
 const users = ref([])
 const modules = ref([])
 const loading = ref(true)
 const saving = ref(false)
-const errorMessage = ref('')
-const modalError = ref('')
 
 const modalEl = ref(null)
 let modalInstance = null
@@ -164,7 +161,6 @@ function togglePermission(moduleName, role) {
 
 async function loadAll() {
   loading.value = true
-  errorMessage.value = ''
   try {
     const [groupsRes, usersRes, modulesRes] = await Promise.all([
       api.get('/api/groups'),
@@ -175,7 +171,7 @@ async function loadAll() {
     users.value = usersRes.data
     modules.value = modulesRes.data
   } catch (e) {
-    errorMessage.value = 'Impossibile caricare i dati.'
+    toast.apiError(e, 'Impossibile caricare i dati.')
   } finally {
     loading.value = false
   }
@@ -191,12 +187,10 @@ function resetForm() {
 
 function openCreate() {
   resetForm()
-  modalError.value = ''
   modalInstance.show()
 }
 
 async function openEdit(group) {
-  modalError.value = ''
   try {
     const { data } = await api.get(`/api/groups/${group.id}`)
     form.id = data.id
@@ -211,13 +205,13 @@ async function openEdit(group) {
     form.permissions = perms
     modalInstance.show()
   } catch (e) {
-    errorMessage.value = 'Impossibile caricare il gruppo.'
+    toast.apiError(e, 'Impossibile caricare il gruppo.')
   }
 }
 
 async function save() {
   saving.value = true
-  modalError.value = ''
+  const isNew = !form.id
   try {
     let groupId = form.id
     if (!groupId) {
@@ -242,8 +236,9 @@ async function save() {
 
     modalInstance.hide()
     await loadAll()
+    toast.success(isNew ? `Gruppo "${form.name}" creato.` : `Gruppo "${form.name}" aggiornato.`)
   } catch (e) {
-    modalError.value = e.response?.data?.detail || 'Salvataggio non riuscito.'
+    toast.apiError(e, 'Salvataggio non riuscito.')
   } finally {
     saving.value = false
   }
@@ -254,8 +249,9 @@ async function removeGroup(group) {
   try {
     await api.delete(`/api/groups/${group.id}`)
     await loadAll()
+    toast.success(`Gruppo "${group.name}" eliminato.`)
   } catch (e) {
-    errorMessage.value = e.response?.data?.detail || 'Impossibile eliminare il gruppo.'
+    toast.apiError(e, 'Impossibile eliminare il gruppo.')
   }
 }
 

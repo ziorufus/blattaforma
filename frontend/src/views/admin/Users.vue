@@ -7,8 +7,6 @@
       </button>
     </div>
 
-    <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
-
     <div v-if="loading" class="text-muted">Caricamento...</div>
     <table v-else class="table table-striped align-middle">
       <thead>
@@ -58,8 +56,6 @@
             <button type="button" class="btn-close" @click="modalInstance.hide()"></button>
           </div>
           <div class="modal-body">
-            <div v-if="modalError" class="alert alert-danger">{{ modalError }}</div>
-
             <div class="mb-3">
               <label class="form-label">Email</label>
               <input
@@ -163,16 +159,16 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { Modal } from 'bootstrap'
 import api from '../../api/axios'
 import { useAuthStore } from '../../stores/auth'
+import { useToastStore } from '../../stores/toast'
 
 const auth = useAuthStore()
+const toast = useToastStore()
 
 const users = ref([])
 const groups = ref([])
 const modules = ref([])
 const loading = ref(true)
 const saving = ref(false)
-const errorMessage = ref('')
-const modalError = ref('')
 
 const modalEl = ref(null)
 let modalInstance = null
@@ -213,7 +209,6 @@ function togglePermission(moduleName, role) {
 
 async function loadAll() {
   loading.value = true
-  errorMessage.value = ''
   try {
     const [usersRes, groupsRes, modulesRes] = await Promise.all([
       api.get('/api/users'),
@@ -224,7 +219,7 @@ async function loadAll() {
     groups.value = groupsRes.data
     modules.value = modulesRes.data
   } catch (e) {
-    errorMessage.value = 'Impossibile caricare i dati.'
+    toast.apiError(e, 'Impossibile caricare i dati.')
   } finally {
     loading.value = false
   }
@@ -242,12 +237,10 @@ function resetForm() {
 
 function openCreate() {
   resetForm()
-  modalError.value = ''
   modalInstance.show()
 }
 
 async function openEdit(user) {
-  modalError.value = ''
   try {
     const { data } = await api.get(`/api/users/${user.id}`)
     form.id = data.id
@@ -264,13 +257,13 @@ async function openEdit(user) {
     form.permissions = perms
     modalInstance.show()
   } catch (e) {
-    errorMessage.value = "Impossibile caricare l'utente."
+    toast.apiError(e, "Impossibile caricare l'utente.")
   }
 }
 
 async function save() {
   saving.value = true
-  modalError.value = ''
+  const isNew = !form.id
   try {
     let userId = form.id
     if (!userId) {
@@ -298,8 +291,9 @@ async function save() {
 
     modalInstance.hide()
     await loadAll()
+    toast.success(isNew ? `Utente "${form.email}" creato.` : `Utente "${form.email}" aggiornato.`)
   } catch (e) {
-    modalError.value = e.response?.data?.detail || 'Salvataggio non riuscito.'
+    toast.apiError(e, 'Salvataggio non riuscito.')
   } finally {
     saving.value = false
   }
@@ -310,8 +304,9 @@ async function removeUser(user) {
   try {
     await api.delete(`/api/users/${user.id}`)
     await loadAll()
+    toast.success(`Utente "${user.email}" eliminato.`)
   } catch (e) {
-    errorMessage.value = e.response?.data?.detail || "Impossibile eliminare l'utente."
+    toast.apiError(e, "Impossibile eliminare l'utente.")
   }
 }
 

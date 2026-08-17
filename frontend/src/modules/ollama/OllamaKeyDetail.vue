@@ -7,7 +7,6 @@
       </router-link>
     </div>
 
-    <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
     <div v-if="loading" class="text-muted">Caricamento...</div>
 
     <template v-else-if="key">
@@ -73,16 +72,17 @@ import { reactive, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api/axios'
 import { useAuthStore } from '../../stores/auth'
+import { useToastStore } from '../../stores/toast'
 import UsageBarChart from '../../components/UsageBarChart.vue'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const toast = useToastStore()
 
 const key = ref(null)
 const usage = reactive({ recent: [], hourly: [], daily: [] })
 const loading = ref(true)
-const errorMessage = ref('')
 
 function canManage() {
   if (auth.isAdmin) return true
@@ -108,7 +108,6 @@ function formatDayLabel(iso, full = false) {
 
 async function load() {
   loading.value = true
-  errorMessage.value = ''
   try {
     const keyId = route.params.id
     const [keyRes, usageRes] = await Promise.all([
@@ -120,7 +119,7 @@ async function load() {
     usage.hourly = usageRes.data.hourly
     usage.daily = usageRes.data.daily
   } catch (e) {
-    errorMessage.value = e.response?.data?.detail || 'Impossibile caricare i dati della chiave.'
+    toast.apiError(e, 'Impossibile caricare i dati della chiave.')
   } finally {
     loading.value = false
   }

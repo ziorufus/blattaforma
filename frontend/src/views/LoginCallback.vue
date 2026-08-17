@@ -11,9 +11,11 @@
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useToastStore } from '../stores/toast'
 
 const router = useRouter()
 const auth = useAuthStore()
+const toast = useToastStore()
 
 onMounted(async () => {
   const raw = window.location.hash.startsWith('#')
@@ -22,7 +24,8 @@ onMounted(async () => {
   const token = new URLSearchParams(raw).get('token')
 
   if (!token) {
-    router.replace({ name: 'login', query: { error: 'oauth_failed' } })
+    toast.error('Accesso con Google non riuscito. Riprova.')
+    router.replace({ name: 'login' })
     return
   }
 
@@ -33,7 +36,8 @@ onMounted(async () => {
     router.replace({ path: '/' })
   } catch (e) {
     auth.logout()
-    router.replace({ name: 'login', query: { error: 'unauthorized' } })
+    toast.error('Il tuo account Google non è registrato su questa piattaforma. Contatta un amministratore.')
+    router.replace({ name: 'login' })
   }
 })
 </script>

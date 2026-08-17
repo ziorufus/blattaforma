@@ -12,7 +12,6 @@
       </div>
     </div>
 
-    <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
     <div v-if="!canManage" class="alert alert-info">
       Puoi vedere l'elenco delle macchine, ma non hai il permesso per modificarlo.
     </div>
@@ -66,8 +65,6 @@
             <button type="button" class="btn-close" @click="modalInstance.hide()"></button>
           </div>
           <div class="modal-body">
-            <div v-if="modalError" class="alert alert-danger">{{ modalError }}</div>
-
             <div class="mb-3">
               <label class="form-label">Nome</label>
               <input v-model="form.name" type="text" class="form-control" required @input="onNameInput" />
@@ -144,8 +141,10 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { Modal } from 'bootstrap'
 import api from '../../api/axios'
 import { useAuthStore } from '../../stores/auth'
+import { useToastStore } from '../../stores/toast'
 
 const auth = useAuthStore()
+const toast = useToastStore()
 const canManage = computed(() => {
   if (auth.isAdmin) return true
   const mod = auth.modules.find((m) => m.name === 'ollama')
@@ -155,8 +154,6 @@ const canManage = computed(() => {
 const machines = ref([])
 const loading = ref(true)
 const saving = ref(false)
-const errorMessage = ref('')
-const modalError = ref('')
 
 const modalEl = ref(null)
 let modalInstance = null
@@ -186,12 +183,11 @@ function onNameInput() {
 
 async function loadMachines() {
   loading.value = true
-  errorMessage.value = ''
   try {
     const { data } = await api.get('/api/modules/ollama/machines')
     machines.value = data
   } catch (e) {
-    errorMessage.value = 'Impossibile caricare le macchine.'
+    toast.apiError(e, 'Impossibile caricare le macchine.')
   } finally {
     loading.value = false
   }
@@ -211,7 +207,6 @@ function resetForm() {
 
 function openCreate() {
   resetForm()
-  modalError.value = ''
   modalInstance.show()
 }
 
@@ -225,13 +220,12 @@ function openEdit(machine) {
   form.api_key_write = ''
   form.clear_api_key_write = false
   slugTouched = true
-  modalError.value = ''
   modalInstance.show()
 }
 
 async function save() {
   saving.value = true
-  modalError.value = ''
+  const isNew = !form.id
   try {
     if (!form.id) {
       await api.post('/api/modules/ollama/machines', {
@@ -260,8 +254,9 @@ async function save() {
 
     modalInstance.hide()
     await loadMachines()
+    toast.success(isNew ? `Macchina "${form.name}" creata.` : `Macchina "${form.name}" aggiornata.`)
   } catch (e) {
-    modalError.value = e.response?.data?.detail || 'Salvataggio non riuscito.'
+    toast.apiError(e, 'Salvataggio non riuscito.')
   } finally {
     saving.value = false
   }
@@ -272,8 +267,9 @@ async function removeMachine(machine) {
   try {
     await api.delete(`/api/modules/ollama/machines/${machine.id}`)
     await loadMachines()
+    toast.success(`Macchina "${machine.name}" eliminata.`)
   } catch (e) {
-    errorMessage.value = e.response?.data?.detail || 'Impossibile eliminare la macchina.'
+    toast.apiError(e, 'Impossibile eliminare la macchina.')
   }
 }
 
