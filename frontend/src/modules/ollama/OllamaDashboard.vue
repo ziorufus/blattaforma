@@ -17,7 +17,7 @@
             <li v-for="model in allAvailableModels" :key="model">
               <a
                 class="dropdown-item"
-                :href="`https://ollama.com/library/${model}`"
+                :href="modelInfoUrl(model)"
                 target="_blank"
                 rel="noopener"
               >
@@ -375,6 +375,10 @@ const allAvailableModels = computed(() => {
 
 function sortedAvailableModels(m) {
   return [...(m.available_models || [])].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function modelInfoUrl(model) {
+  return model.includes('/') ? `https://ollama.com/${model}` : `https://ollama.com/library/${model}`
 }
 
 function formatBytes(bytes) {
