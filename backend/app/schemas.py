@@ -1,6 +1,6 @@
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict, EmailStr
+
+from .datetime_utils import UtcDatetime
 
 
 # ---------- Auth ----------
@@ -55,7 +55,7 @@ class GroupOut(GroupBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    created_at: datetime
+    created_at: UtcDatetime
     member_count: int = 0
 
 
@@ -91,8 +91,8 @@ class UserUpdate(BaseModel):
 
 
 class UserOut(UserSummary):
-    created_at: datetime
-    last_login: datetime | None = None
+    created_at: UtcDatetime
+    last_login: UtcDatetime | None = None
     group_ids: list[int] = []
 
 

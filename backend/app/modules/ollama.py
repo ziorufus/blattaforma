@@ -23,6 +23,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from .. import models
 from ..config import settings
 from ..database import Base, engine
+from ..datetime_utils import UtcDatetime
 from ..deps import get_current_user, get_db, require_module_role
 
 MODULE_NAME = "ollama"
@@ -184,7 +185,7 @@ class KeyValueOut(BaseModel):
 
 
 class KeyUsageEntry(BaseModel):
-    created_at: datetime
+    created_at: UtcDatetime
     code: str
     response_code: int
 
@@ -401,7 +402,10 @@ def _bucketize(
             else:
                 bucket["denied"] += 1
     return [
-        KeyUsageBucket(label=(start + timedelta(seconds=bucket_seconds * i)).isoformat(), **counts[i])
+        KeyUsageBucket(
+            label=(start + timedelta(seconds=bucket_seconds * i)).replace(tzinfo=timezone.utc).isoformat(),
+            **counts[i],
+        )
         for i in range(num_buckets)
     ]
 
