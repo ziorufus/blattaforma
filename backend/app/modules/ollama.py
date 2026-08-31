@@ -1044,16 +1044,4 @@ async def pull_model(
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
-def _ensure_key_user_id_column() -> None:
-    """`Base.metadata.create_all` only creates missing tables, it never alters
-    existing ones -- this adds the `user_id` column to `ollama_keys` for
-    databases created before it existed. Safe to call on every startup."""
-    with engine.connect() as conn:
-        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(ollama_keys)")}
-        if "user_id" not in cols:
-            conn.exec_driver_sql("ALTER TABLE ollama_keys ADD COLUMN user_id INTEGER REFERENCES users(id)")
-            conn.commit()
-
-
 Base.metadata.create_all(bind=engine)
-_ensure_key_user_id_column()
