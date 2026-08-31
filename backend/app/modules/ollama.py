@@ -983,8 +983,10 @@ async def unload_model(
                 # Already not loaded: nothing to do.
                 return {"status": "ok"}
 
+            # Gli admin e gli utenti con privilegio "models" possono smontare
+            # il modello in qualsiasi momento, ignorando la finestra minima.
             expires_at = model_entry.get("expires_at")
-            if expires_at:
+            if expires_at and "models" not in roles:
                 until_minutes = (datetime.fromisoformat(expires_at) - datetime.now(timezone.utc)).total_seconds() / 60
                 if until_minutes >= settings.ollama_max_minutes:
                     remaining = math.ceil(until_minutes - settings.ollama_max_minutes)
