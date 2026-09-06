@@ -192,7 +192,7 @@
                     :key="lm.name"
                     class="badge text-bg-info me-1 mb-1 d-inline-flex align-items-center"
                   >
-                    {{ lm.name }} ({{ formatBytes(lm.size_bytes) }}{{ lm.context_size ? ', ctx ' + formatContext(lm.context_size) : '' }})
+                    {{ baseModelName(lm.name) }} ({{ formatBytes(lm.size_bytes) }}{{ lm.context_size ? ', ctx ' + formatContext(lm.context_size) : '' }})
                     <button
                       type="button"
                       class="btn btn-sm btn-link text-white p-0 ms-1"
@@ -421,6 +421,12 @@ function formatContext(v) {
   return `${Math.round(v / 1024)}K`
 }
 
+// I modelli caricati sono varianti derivate con il contesto nel nome
+// (es. "qwen2.5:32b-ctx65536"): mostriamo solo il nome base.
+function baseModelName(name) {
+  return (name || '').replace(/[-:]ctx\d+$/, '')
+}
+
 async function fetchStatus(machine, { silent = false } = {}) {
   try {
     const { data } = await api.get(`/api/modules/ollama/machines/${machine.id}/status`)
@@ -552,7 +558,7 @@ async function unloadModel(m, modelName) {
   try {
     await api.post(`/api/modules/ollama/machines/${m.id}/unload`, { model: modelName })
     await fetchStatus(m, { silent: true })
-    toast.success(`Modello "${modelName}" espulso da ${m.name}.`)
+    toast.success(`Modello "${baseModelName(modelName)}" espulso da ${m.name}.`)
   } catch (e) {
     toast.apiError(e, 'Impossibile espellere il modello.')
   } finally {

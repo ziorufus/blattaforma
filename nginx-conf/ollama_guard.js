@@ -152,6 +152,20 @@ async function check(r) {
         request.options.num_ctx = loadedNumCtx;
     }
 
+    /*
+     * Il servizio di autorizzazione può indicare il nome del modello
+     * effettivamente caricato (es. una variante derivata "modello-ctxN"
+     * con num_ctx impostato nel Modelfile). Riscrivendo il body facciamo
+     * sì che la richiesta usi quel runner già in RAM invece di farne
+     * ricaricare uno nuovo -- indispensabile per l'endpoint OpenAI
+     * (/v1/chat/completions), che non ha un parametro per il contesto.
+     */
+    const loadedModel = reply.headersOut["X-Ollama-Loaded-Model"];
+
+    if (loadedModel !== undefined && loadedModel !== "") {
+        request.model = loadedModel;
+    }
+
     r.variables.ollama_request_body = JSON.stringify(request);
 }
 

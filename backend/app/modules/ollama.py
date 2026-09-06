@@ -414,6 +414,53 @@ def _auth_header(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}"}
 
 
+# The OpenAI-compatible endpoint (/v1/chat/completions, ...) has no `num_ctx`
+# parameter, so a request that omits it makes Ollama reload the model at the
+# default context. To avoid that, every load goes through a derived model that
+# bakes `num_ctx` into its Modelfile (`PARAMETER num_ctx N`) -- Ollama honours
+# that on the OpenAI endpoint too. The derived name keeps the base ref and
+# appends a `-ctx<N>` marker to the tag (`qwen2.5:32b` -> `qwen2.5:32b-ctx65536`;
+# a tagless ref gets `:ctx<N>`). nginx (njs + the /check service) rewrites the
+# incoming model name to the loaded derived variant.
+
+_DERIVED_SUFFIX_RE = re.compile(r"^(?P<base>.+?)[-:]ctx(?P<ctx>\d+)$")
+
+
+def _derived_model_name(model: str, num_ctx: int) -> str:
+    head, sep, tag = model.rpartition(":")
+    if sep and "/" not in tag:
+        return f"{head}:{tag}-ctx{num_ctx}"
+    return f"{model}:ctx{num_ctx}"
+
+
+def _strip_derived_suffix(name: str) -> str:
+    match = _DERIVED_SUFFIX_RE.match(name or "")
+    return match.group("base") if match else (name or "")
+
+
+def _is_derived_model(name: str) -> bool:
+    return bool(_DERIVED_SUFFIX_RE.match(name or ""))
+
+
+def _match_loaded_model(ps_models: list[dict], requested: str | None) -> tuple[str | None, int | None]:
+    """Return (full_name, context_length) of the loaded runner serving
+    `requested`: an exact name match first, then a derived `<requested>-ctx<N>`
+    variant (largest context wins if several are loaded). (None, None) when
+    nothing matches."""
+    if not requested:
+        return None, None
+    best: tuple[str, int | None] | None = None
+    for m in ps_models:
+        name = m.get("name") or m.get("model") or ""
+        if name == requested:
+            return name, m.get("context_length")
+        if _strip_derived_suffix(name) == requested:
+            ctx = m.get("context_length") or 0
+            if best is None or ctx > (best[1] or 0):
+                best = (name, m.get("context_length"))
+    return best if best else (None, None)
+
+
 _PROM_LINE_RE = re.compile(r"^([A-Za-z_:][A-Za-z0-9_:]*)(\{[^}]*\})?\s+([^\s#]+)")
 
 
@@ -817,6 +864,7 @@ async def check_token(
     if not own_ready_key:
         if allowed and x_ollama_auth_mode == "inference":
             loaded_context_size = None
+            loaded_model_name = None
             machine = db.query(OllamaMachine).filter(OllamaMachine.slug == code).first()
 
             if not machine:
@@ -831,10 +879,9 @@ async def check_token(
                         )
                         resp.raise_for_status()
                         ps_data = resp.json()
-                    for m in ps_data.get("models", []):
-                        if (m.get("name") or m.get("model")) == x_ollama_model:
-                            loaded_context_size = m.get("context_length")
-                            break
+                    loaded_model_name, loaded_context_size = _match_loaded_model(
+                        ps_data.get("models", []), x_ollama_model
+                    )
                 except httpx.HTTPError:
                     pass
 
@@ -846,6 +893,11 @@ async def check_token(
                 detail = f"Requested context size {x_ollama_num_ctx} exceeds loaded model's context size {loaded_context_size}"
             else:
                 response.headers["X-Ollama-Loaded-Num-Ctx"] = str(loaded_context_size)
+                # Tell nginx (njs) which loaded variant to route the request to,
+                # so a request naming the base model reuses the already-loaded
+                # derived model instead of triggering a reload.
+                if loaded_model_name and loaded_model_name != x_ollama_model:
+                    response.headers["X-Ollama-Loaded-Model"] = loaded_model_name
 
     # Log reflects the final outcome (including the model/context check above),
     # not just the initial key/machine authorization.
@@ -916,6 +968,7 @@ async def machine_status(
             out.available_models = [
                 ModelInfo(name=m.get("name") or m.get("model"), size_bytes=m.get("size") or 0)
                 for m in data.get("models", [])
+                if not _is_derived_model(m.get("name") or m.get("model") or "")
             ]
         except Exception:
             errors.append("Ollama (list) non raggiungibile")
@@ -936,12 +989,30 @@ async def load_model(
     db: Session = Depends(get_db),
 ):
     machine = _get_machine_or_404(db, machine_id)
+    derived = _derived_model_name(payload.model, payload.context_size)
     try:
         async with httpx.AsyncClient(timeout=LOAD_MODEL_TIMEOUT) as client:
+            # Always (re)create a derived model with num_ctx baked into its
+            # Modelfile. It's a tiny manifest that shares the base's weight
+            # blobs; recreating it costs next to nothing and re-aligns it if the
+            # base model was pulled anew. This is what makes the context stick
+            # on the OpenAI-compatible endpoint, which has no num_ctx parameter.
+            resp = await client.post(
+                f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/create",
+                json={
+                    "model": derived,
+                    "from": payload.model,
+                    "parameters": {"num_ctx": payload.context_size},
+                    "stream": False,
+                },
+                headers=_auth_header(machine.api_key_read),
+            )
+            resp.raise_for_status()
+            # Load the derived model into RAM (num_ctx comes from its Modelfile).
             resp = await client.post(
                 f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
                 json={
-                    "model": payload.model,
+                    "model": derived,
                     "stream": False,
                     "options": {"num_ctx": payload.context_size},
                 },
