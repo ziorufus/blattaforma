@@ -7,9 +7,13 @@ the frontend: every call to a machine's Ollama instance is proxied through
 this router, which attaches the key as an `Authorization: Bearer ...` header.
 """
 
+import fcntl
+import logging
 import math
 import re
 import secrets
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -21,10 +25,12 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, T
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import models
-from ..config import settings
-from ..database import Base, engine
+from ..config import BASE_DIR, settings
+from ..database import Base, SessionLocal, engine
 from ..datetime_utils import UtcDatetime
 from ..deps import get_current_user, get_db, require_module_role
+
+logger = logging.getLogger("blattaforma.modules.ollama")
 
 MODULE_NAME = "ollama"
 MODULE_LABEL = "Ollama"
@@ -73,6 +79,29 @@ class OllamaKey(Base):
     user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+
+
+class OllamaPinnedModel(Base):
+    """Un modello "bloccato" in RAM: caricato con keep_alive=-1 e mantenuto
+    attivo da un refresh periodico finché un utente privilegiato non lo
+    sblocca o non lo espelle. Una riga con `ended_at` NULL è un blocco
+    attivo; al più uno per (macchina, modello)."""
+
+    __tablename__ = "ollama_pinned_models"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    machine_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("ollama_machines.id", ondelete="CASCADE"), nullable=False
+    )
+    # Nome del modello effettivamente caricato (la variante derivata con il
+    # contesto nel nome, es. "qwen2.5:32b-ctx65536").
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    context_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    pinned_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class OllamaKeyLog(Base):
@@ -207,6 +236,8 @@ class ModelInfo(BaseModel):
     name: str
     size_bytes: int
     context_size: int | None = None
+    pinned: bool = False
+    pinned_by_email: str | None = None
 
 
 class MachineStatusOut(BaseModel):
@@ -233,6 +264,10 @@ class LoadModelRequest(BaseModel):
 
 
 class PullModelRequest(BaseModel):
+    model: str
+
+
+class PinModelRequest(BaseModel):
     model: str
 
 
@@ -414,6 +449,23 @@ def _auth_header(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}"}
 
 
+def _utcnow() -> datetime:
+    """Timestamp naive in UTC, coerente con la convenzione del DB (vedi datetime_utils)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _active_pin(db: Session, machine_id: int, model: str) -> OllamaPinnedModel | None:
+    return (
+        db.query(OllamaPinnedModel)
+        .filter(
+            OllamaPinnedModel.machine_id == machine_id,
+            OllamaPinnedModel.model == model,
+            OllamaPinnedModel.ended_at.is_(None),
+        )
+        .first()
+    )
+
+
 # The OpenAI-compatible endpoint (/v1/chat/completions, ...) has no `num_ctx`
 # parameter, so a request that omits it makes Ollama reload the model at the
 # default context. To avoid that, every load goes through a derived model that
@@ -436,6 +488,11 @@ def _derived_model_name(model: str, num_ctx: int) -> str:
 def _strip_derived_suffix(name: str) -> str:
     match = _DERIVED_SUFFIX_RE.match(name or "")
     return match.group("base") if match else (name or "")
+
+
+def _derived_context_size(name: str) -> int | None:
+    match = _DERIVED_SUFFIX_RE.match(name or "")
+    return int(match.group("ctx")) if match else None
 
 
 def _is_derived_model(name: str) -> bool:
@@ -973,9 +1030,39 @@ async def machine_status(
         except Exception:
             errors.append("Ollama (list) non raggiungibile")
 
+    _annotate_pinned(db, machine.id, out.loaded_models)
+
     if errors:
         out.error = "; ".join(errors)
     return out
+
+
+def _annotate_pinned(db: Session, machine_id: int, loaded_models: list[ModelInfo]) -> None:
+    """Marca i modelli caricati che risultano bloccati in RAM."""
+    if not loaded_models:
+        return
+    pins = {
+        p.model: p
+        for p in db.query(OllamaPinnedModel)
+        .filter(
+            OllamaPinnedModel.machine_id == machine_id,
+            OllamaPinnedModel.ended_at.is_(None),
+        )
+        .all()
+    }
+    if not pins:
+        return
+    user_ids = {p.pinned_by_user_id for p in pins.values() if p.pinned_by_user_id}
+    emails = (
+        {u.id: u.email for u in db.query(models.User).filter(models.User.id.in_(user_ids)).all()}
+        if user_ids
+        else {}
+    )
+    for mi in loaded_models:
+        pin = pins.get(mi.name)
+        if pin is not None:
+            mi.pinned = True
+            mi.pinned_by_email = emails.get(pin.pinned_by_user_id)
 
 
 # ---------- Load a model into RAM (any granted role) ----------
@@ -1009,13 +1096,18 @@ async def load_model(
             )
             resp.raise_for_status()
             # Load the derived model into RAM (num_ctx comes from its Modelfile).
+            # Se il modello è già bloccato, mantieni il keep_alive=-1: un load
+            # senza keep_alive lo riporterebbe al timeout di default.
+            generate_body = {
+                "model": derived,
+                "stream": False,
+                "options": {"num_ctx": payload.context_size},
+            }
+            if _active_pin(db, machine.id, derived) is not None:
+                generate_body["keep_alive"] = -1
             resp = await client.post(
                 f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
-                json={
-                    "model": derived,
-                    "stream": False,
-                    "options": {"num_ctx": payload.context_size},
-                },
+                json=generate_body,
                 headers=_auth_header(machine.api_key_read),
             )
             resp.raise_for_status()
@@ -1026,7 +1118,12 @@ async def load_model(
     return {"status": "ok"}
 
 
-# ---------- Unload a model from RAM (any granted role) ----------
+# ---------- Unload a model from RAM ----------
+#
+# Chiunque abbia un ruolo del modulo può espellere un modello NON bloccato
+# (gli utenti senza privilegio "models" restano soggetti alla finestra minima).
+# Un modello bloccato può essere espulso solo da un admin o da un utente con
+# privilegio "models"; l'espulsione chiude anche il blocco.
 
 
 @router.post("/machines/{machine_id}/unload")
@@ -1037,6 +1134,14 @@ async def unload_model(
     db: Session = Depends(get_db),
 ):
     machine = _get_machine_or_404(db, machine_id)
+    pin = _active_pin(db, machine.id, payload.model)
+
+    if pin is not None and "models" not in roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo un amministratore o un utente con privilegio 'models' può espellere un modello bloccato",
+        )
+
     try:
         async with httpx.AsyncClient(timeout=UNLOAD_MODEL_TIMEOUT) as client:
             resp = await client.get(
@@ -1051,20 +1156,25 @@ async def unload_model(
                 None,
             )
             if model_entry is None:
-                # Already not loaded: nothing to do.
+                # Non caricato: niente da espellere, ma chiudiamo un eventuale
+                # blocco pendente così il refresh smette di ricaricarlo.
+                if pin is not None:
+                    pin.ended_at = _utcnow()
+                    db.commit()
                 return {"status": "ok"}
 
-            # Gli admin e gli utenti con privilegio "models" possono smontare
-            # il modello in qualsiasi momento, ignorando la finestra minima.
-            expires_at = model_entry.get("expires_at")
-            if expires_at and "models" not in roles:
-                until_minutes = (datetime.fromisoformat(expires_at) - datetime.now(timezone.utc)).total_seconds() / 60
-                if until_minutes >= settings.ollama_max_minutes:
-                    remaining = math.ceil(until_minutes - settings.ollama_max_minutes)
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Il modello può essere smontato solo tra {remaining} minuti",
-                    )
+            # La finestra minima si applica solo ai modelli non bloccati e agli
+            # utenti senza privilegio "models".
+            if pin is None:
+                expires_at = model_entry.get("expires_at")
+                if expires_at and "models" not in roles:
+                    until_minutes = (datetime.fromisoformat(expires_at) - datetime.now(timezone.utc)).total_seconds() / 60
+                    if until_minutes >= settings.ollama_max_minutes:
+                        remaining = math.ceil(until_minutes - settings.ollama_max_minutes)
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Il modello può essere smontato solo tra {remaining} minuti",
+                        )
 
             resp = await client.post(
                 f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
@@ -1076,6 +1186,114 @@ async def unload_model(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Impossibile espellere il modello: {exc}"
         ) from exc
+
+    if pin is not None:
+        pin.ended_at = _utcnow()
+        db.commit()
+    return {"status": "ok"}
+
+
+# ---------- Pin / unpin a model in RAM (role: models) ----------
+
+
+@router.post("/machines/{machine_id}/pin")
+async def pin_model(
+    machine_id: int,
+    payload: PinModelRequest,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_role(roles, "models")
+    machine = _get_machine_or_404(db, machine_id)
+
+    if _active_pin(db, machine.id, payload.model) is not None:
+        return {"status": "ok"}
+
+    try:
+        async with httpx.AsyncClient(timeout=UNLOAD_MODEL_TIMEOUT) as client:
+            resp = await client.get(
+                f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/ps",
+                headers=_auth_header(machine.api_key_read),
+            )
+            resp.raise_for_status()
+            entry = next(
+                (
+                    m
+                    for m in resp.json().get("models", [])
+                    if (m.get("name") or m.get("model")) == payload.model
+                ),
+                None,
+            )
+            if entry is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Il modello non è caricato in RAM",
+                )
+            context_size = (
+                entry.get("context_length")
+                or _derived_context_size(payload.model)
+                or LoadModelRequest.model_fields["context_size"].default
+            )
+            resp = await client.post(
+                f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
+                json={"model": payload.model, "keep_alive": -1, "stream": False},
+                headers=_auth_header(machine.api_key_read),
+            )
+            resp.raise_for_status()
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Impossibile bloccare il modello: {exc}"
+        ) from exc
+
+    db.add(
+        OllamaPinnedModel(
+            machine_id=machine.id,
+            model=payload.model,
+            context_size=int(context_size),
+            pinned_by_user_id=user.id,
+            started_at=_utcnow(),
+        )
+    )
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/machines/{machine_id}/unpin")
+async def unpin_model(
+    machine_id: int,
+    payload: PinModelRequest,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    db: Session = Depends(get_db),
+):
+    _require_role(roles, "models")
+    machine = _get_machine_or_404(db, machine_id)
+
+    pin = _active_pin(db, machine.id, payload.model)
+    if pin is None:
+        return {"status": "ok"}
+
+    pin.ended_at = _utcnow()
+    db.commit()
+
+    # Il modello resta in RAM ma torna a scadere con il keep_alive di default
+    # della macchina: una generate senza keep_alive resetta il timer.
+    try:
+        async with httpx.AsyncClient(timeout=UNLOAD_MODEL_TIMEOUT) as client:
+            resp = await client.post(
+                f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
+                json={"model": payload.model, "stream": False},
+                headers=_auth_header(machine.api_key_read),
+            )
+            resp.raise_for_status()
+    except httpx.HTTPError:
+        logger.warning(
+            "Ollama: sblocco di %s su %s riuscito, ma il reset del keep_alive di default è fallito",
+            payload.model,
+            machine.slug,
+        )
     return {"status": "ok"}
 
 
@@ -1115,4 +1333,156 @@ async def pull_model(
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
+# ---------- Refresh periodico dei modelli bloccati ----------
+#
+# Ogni chiamata a Ollama senza `keep_alive` riporta il modello al timeout di
+# default della macchina, quindi un modello "bloccato" (caricato con
+# keep_alive=-1) va rinfrescato periodicamente. Un thread daemon, avviato una
+# volta per processo, si occupa del refresh; poiché il backend gira con più
+# worker uvicorn, i thread si contendono un file lock e solo quello che lo
+# ottiene esegue davvero il refresh (gli altri riprovano finché il leader non
+# muore). All'avvio il primo giro ricarica i modelli che risultavano bloccati
+# prima di un eventuale riavvio della Blattaforma.
+
+_SCHEDULER_LOCK_PATH = settings.ollama_pin_scheduler_lock_path or str(
+    BASE_DIR / "ollama_pin_scheduler.lock"
+)
+_scheduler_lock_fh = None
+_scheduler_started = False
+_scheduler_lock = threading.Lock()
+
+
+def _acquire_scheduler_lock():
+    """Prova ad acquisire il file lock non bloccante. Ritorna l'handle del file
+    (da tenere vivo per tutta la durata del processo) o None se un altro worker
+    lo detiene già."""
+    global _scheduler_lock_fh
+    fh = open(_SCHEDULER_LOCK_PATH, "w")
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    _scheduler_lock_fh = fh
+    return fh
+
+
+def _refresh_interval_seconds() -> int:
+    return max(60, settings.ollama_pin_refresh_minutes * 60)
+
+
+def _pin_scheduler_loop() -> None:
+    # Aspetta il file lock: se un altro worker lo detiene, riprova ogni minuto
+    # così da subentrare se il leader dovesse terminare.
+    while _acquire_scheduler_lock() is None:
+        time.sleep(60)
+
+    logger.info("Ollama: scheduler dei modelli bloccati avviato (refresh ogni %d min)", settings.ollama_pin_refresh_minutes)
+    time.sleep(10)  # lascia stabilizzare l'avvio
+    while True:
+        try:
+            _refresh_pinned_models()
+        except Exception:
+            logger.exception("Ollama: refresh dei modelli bloccati fallito")
+        time.sleep(_refresh_interval_seconds())
+
+
+def _refresh_pinned_models() -> None:
+    db = SessionLocal()
+    try:
+        pins = (
+            db.query(OllamaPinnedModel)
+            .filter(OllamaPinnedModel.ended_at.is_(None))
+            .all()
+        )
+        if not pins:
+            return
+        machines = {m.id: m for m in db.query(OllamaMachine).all()}
+        by_machine: dict[int, list[OllamaPinnedModel]] = {}
+        for pin in pins:
+            by_machine.setdefault(pin.machine_id, []).append(pin)
+
+        with httpx.Client(timeout=LOAD_MODEL_TIMEOUT) as client:
+            for machine_id, machine_pins in by_machine.items():
+                machine = machines.get(machine_id)
+                if machine is None:
+                    continue
+                try:
+                    _refresh_machine_pins(client, machine, machine_pins)
+                except Exception:
+                    logger.exception(
+                        "Ollama: refresh dei modelli bloccati fallito per la macchina %s", machine.slug
+                    )
+    finally:
+        db.close()
+
+
+def _refresh_machine_pins(client: httpx.Client, machine: OllamaMachine, pins: list[OllamaPinnedModel]) -> None:
+    resp = client.get(
+        f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/ps",
+        headers=_auth_header(machine.api_key_read),
+    )
+    resp.raise_for_status()
+    loaded = {(m.get("name") or m.get("model")) for m in resp.json().get("models", [])}
+
+    for pin in pins:
+        try:
+            if pin.model in loaded:
+                resp = client.post(
+                    f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
+                    json={"model": pin.model, "keep_alive": -1, "stream": False},
+                    headers=_auth_header(machine.api_key_read),
+                )
+                resp.raise_for_status()
+            else:
+                _reload_pinned_model(client, machine, pin)
+        except Exception:
+            logger.exception(
+                "Ollama: impossibile rinfrescare il modello bloccato %s su %s", pin.model, machine.slug
+            )
+
+
+def _reload_pinned_model(client: httpx.Client, machine: OllamaMachine, pin: OllamaPinnedModel) -> None:
+    """Ricarica un modello bloccato caduto dalla RAM, replicando il flusso di
+    /load: (ri)crea la variante derivata con num_ctx nel Modelfile, poi la
+    carica con keep_alive=-1."""
+    base_model = _strip_derived_suffix(pin.model)
+    if base_model != pin.model:
+        # Ricrea la variante derivata (manifest leggero, condivide i blob dei
+        # pesi) così num_ctx resta valido anche sull'endpoint OpenAI.
+        resp = client.post(
+            f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/create",
+            json={
+                "model": pin.model,
+                "from": base_model,
+                "parameters": {"num_ctx": pin.context_size},
+                "stream": False,
+            },
+            headers=_auth_header(machine.api_key_read),
+        )
+        resp.raise_for_status()
+    resp = client.post(
+        f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
+        json={
+            "model": pin.model,
+            "keep_alive": -1,
+            "stream": False,
+            "options": {"num_ctx": pin.context_size},
+        },
+        headers=_auth_header(machine.api_key_read),
+    )
+    resp.raise_for_status()
+    logger.info("Ollama: modello bloccato %s ricaricato su %s", pin.model, machine.slug)
+
+
+def _start_pin_scheduler() -> None:
+    global _scheduler_started
+    with _scheduler_lock:
+        if _scheduler_started:
+            return
+        _scheduler_started = True
+    threading.Thread(target=_pin_scheduler_loop, name="ollama-pin-scheduler", daemon=True).start()
+
+
 Base.metadata.create_all(bind=engine)
+_start_pin_scheduler()

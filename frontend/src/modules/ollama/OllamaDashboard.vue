@@ -193,17 +193,66 @@
                     class="badge text-bg-info me-1 mb-1 d-inline-flex align-items-center"
                   >
                     {{ baseModelName(lm.name) }} ({{ formatBytes(lm.size_bytes) }}{{ lm.context_size ? ', ctx ' + formatContext(lm.context_size) : '' }})
-                    <button
-                      type="button"
-                      class="btn btn-sm btn-link text-white p-0 ms-1"
-                      style="line-height: 1"
-                      title="Espelli dalla RAM"
-                      :disabled="m.unloadingModel === lm.name"
-                      @click="unloadModel(m, lm.name)"
-                    >
-                      <span v-if="m.unloadingModel === lm.name" class="spinner-border spinner-border-sm"></span>
-                      <i v-else class="bi bi-trash"></i>
-                    </button>
+
+                    <!-- Modello bloccato in RAM -->
+                    <template v-if="lm.pinned">
+                      <button
+                        v-if="canManageModels"
+                        type="button"
+                        class="btn btn-sm btn-link text-white p-0 ms-1"
+                        style="line-height: 1"
+                        title="Sblocca (il modello resta caricato ma tornerà a scadere)"
+                        :disabled="m.pinningModel === lm.name"
+                        @click="unpinModel(m, lm.name)"
+                      >
+                        <span v-if="m.pinningModel === lm.name" class="spinner-border spinner-border-sm"></span>
+                        <i v-else class="bi bi-lock-fill"></i>
+                      </button>
+                      <i
+                        v-else
+                        class="bi bi-lock-fill ms-1"
+                        :title="lm.pinned_by_email ? 'Bloccato in RAM da ' + lm.pinned_by_email : 'Bloccato in RAM'"
+                      ></i>
+                      <button
+                        v-if="canManageModels"
+                        type="button"
+                        class="btn btn-sm btn-link text-white p-0 ms-1"
+                        style="line-height: 1"
+                        title="Espelli dalla RAM"
+                        :disabled="m.unloadingModel === lm.name"
+                        @click="unloadModel(m, lm.name)"
+                      >
+                        <span v-if="m.unloadingModel === lm.name" class="spinner-border spinner-border-sm"></span>
+                        <i v-else class="bi bi-trash"></i>
+                      </button>
+                    </template>
+
+                    <!-- Modello non bloccato -->
+                    <template v-else>
+                      <button
+                        v-if="canManageModels"
+                        type="button"
+                        class="btn btn-sm btn-link text-white p-0 ms-1"
+                        style="line-height: 1"
+                        title="Blocca in RAM (non scadrà finché non lo sblocchi)"
+                        :disabled="m.pinningModel === lm.name"
+                        @click="pinModel(m, lm.name)"
+                      >
+                        <span v-if="m.pinningModel === lm.name" class="spinner-border spinner-border-sm"></span>
+                        <i v-else class="bi bi-unlock"></i>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-link text-white p-0 ms-1"
+                        style="line-height: 1"
+                        title="Espelli dalla RAM"
+                        :disabled="m.unloadingModel === lm.name"
+                        @click="unloadModel(m, lm.name)"
+                      >
+                        <span v-if="m.unloadingModel === lm.name" class="spinner-border spinner-border-sm"></span>
+                        <i v-else class="bi bi-trash"></i>
+                      </button>
+                    </template>
                   </span>
                   <span v-if="!m.loaded_models || m.loaded_models.length === 0" class="text-muted small">
                     Nessuno
@@ -342,6 +391,9 @@ const canPull = computed(() => {
   const mod = auth.modules.find((mm) => mm.name === 'ollama')
   return !!mod && mod.granted_roles.includes('models')
 })
+// Stessa regola di canPull: admin o privilegio "models". Chi può gestire i
+// modelli può bloccarli/sbloccarli in RAM ed espellere anche quelli bloccati.
+const canManageModels = canPull
 
 const AUTO_REFRESH_INTERVAL_MS = 15000
 const DEFAULT_CONTEXT_SIZE = 65536
@@ -446,6 +498,7 @@ async function loadMachines() {
       selectedContextSize: DEFAULT_CONTEXT_SIZE,
       loadingModel: false,
       unloadingModel: null,
+      pinningModel: null,
       refreshing: false,
       pullModel: '',
       pulling: false,
@@ -563,6 +616,32 @@ async function unloadModel(m, modelName) {
     toast.apiError(e, 'Impossibile espellere il modello.')
   } finally {
     m.unloadingModel = null
+  }
+}
+
+async function pinModel(m, modelName) {
+  m.pinningModel = modelName
+  try {
+    await api.post(`/api/modules/ollama/machines/${m.id}/pin`, { model: modelName })
+    await fetchStatus(m, { silent: true })
+    toast.success(`Modello "${baseModelName(modelName)}" bloccato in RAM su ${m.name}.`)
+  } catch (e) {
+    toast.apiError(e, 'Impossibile bloccare il modello.')
+  } finally {
+    m.pinningModel = null
+  }
+}
+
+async function unpinModel(m, modelName) {
+  m.pinningModel = modelName
+  try {
+    await api.post(`/api/modules/ollama/machines/${m.id}/unpin`, { model: modelName })
+    await fetchStatus(m, { silent: true })
+    toast.success(`Modello "${baseModelName(modelName)}" sbloccato su ${m.name}.`)
+  } catch (e) {
+    toast.apiError(e, 'Impossibile sbloccare il modello.')
+  } finally {
+    m.pinningModel = null
   }
 }
 

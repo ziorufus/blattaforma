@@ -21,6 +21,14 @@ class Settings(BaseSettings):
 
     ollama_max_minutes: int = 25
 
+    # Ogni quanti minuti il worker "leader" rinfresca il keep_alive dei
+    # modelli bloccati in RAM (e ricarica quelli eventualmente caduti).
+    ollama_pin_refresh_minutes: int = 5
+
+    # Percorso del file lock che elegge l'unico worker che esegue il refresh
+    # dei modelli bloccati. Vuoto = backend/ollama_pin_scheduler.lock.
+    ollama_pin_scheduler_lock_path: str = ""
+
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", case_sensitive=False)
 
     @property
