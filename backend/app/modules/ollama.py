@@ -1275,25 +1275,30 @@ async def unpin_model(
     if pin is None:
         return {"status": "ok"}
 
-    pin.ended_at = _utcnow()
-    db.commit()
-
-    # Il modello resta in RAM ma torna a scadere con il keep_alive di default
-    # della macchina: una generate senza keep_alive resetta il timer.
+    # Il modello resta in RAM ma torna a scadere: un runner con keep_alive
+    # "infinito" va riportato a una scadenza normale con un keep_alive
+    # ESPLICITO (una generate che lo omette non lo sovrascrive). Lo facciamo
+    # prima di chiudere la riga: se Ollama non risponde, il blocco resta
+    # attivo e l'operazione è ritentabile.
     try:
         async with httpx.AsyncClient(timeout=UNLOAD_MODEL_TIMEOUT) as client:
             resp = await client.post(
                 f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
-                json={"model": payload.model, "stream": False},
+                json={
+                    "model": payload.model,
+                    "keep_alive": settings.ollama_default_keep_alive,
+                    "stream": False,
+                },
                 headers=_auth_header(machine.api_key_read),
             )
             resp.raise_for_status()
-    except httpx.HTTPError:
-        logger.warning(
-            "Ollama: sblocco di %s su %s riuscito, ma il reset del keep_alive di default è fallito",
-            payload.model,
-            machine.slug,
-        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Impossibile sbloccare il modello: {exc}"
+        ) from exc
+
+    pin.ended_at = _utcnow()
+    db.commit()
     return {"status": "ok"}
 
 

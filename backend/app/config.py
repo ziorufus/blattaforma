@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # dei modelli bloccati. Vuoto = backend/ollama_pin_scheduler.lock.
     ollama_pin_scheduler_lock_path: str = ""
 
+    # keep_alive applicato quando un modello viene sbloccato: riporta il runner
+    # da "infinito" a una scadenza normale. Formato Ollama (es. "30m", "1h").
+    ollama_default_keep_alive: str = "30m"
+
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", case_sensitive=False)
 
     @property
