@@ -10,5 +10,8 @@ export default {
     { path: 'macchine', name: 'macchine', component: OllamaMachines },
     { path: 'chiavi', name: 'chiavi', component: OllamaKeys },
     { path: 'chiavi/:id', name: 'chiave-dettaglio', component: OllamaKeyDetail },
+    // Stesso componente della route admin sopra: OllamaKeyDetail distingue
+    // le due viste in base al nome della route (vedi commento nel componente).
+    { path: 'mie-chiavi/:id', name: 'mia-chiave-dettaglio', component: OllamaKeyDetail },
   ],
 }

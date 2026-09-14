@@ -324,7 +324,11 @@
             </thead>
             <tbody>
               <tr v-for="k in myKeys" :key="k.id">
-                <td>{{ k.name }}</td>
+                <td>
+                  <router-link :to="{ name: 'module-ollama-mia-chiave-dettaglio', params: { id: k.id } }">
+                    {{ k.name }}
+                  </router-link>
+                </td>
                 <td><code>{{ k.revealed ? k.plainValue : k.masked_value }}</code></td>
                 <td>
                   <span class="badge" :class="k.active ? 'text-bg-success' : 'text-bg-secondary'">

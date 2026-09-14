@@ -203,6 +203,15 @@ class MyKeyOut(BaseModel):
     active: bool
 
 
+class MyKeyDetail(BaseModel):
+    id: int
+    name: str
+    masked_value: str
+    active: bool
+    all_machines: bool
+    machine_names: list[str]
+
+
 class AssignableUser(BaseModel):
     id: int
     email: str
@@ -409,6 +418,22 @@ def _to_my_key_out(key: OllamaKey) -> MyKeyOut:
         name=key.name,
         masked_value=_mask_value(key.value),
         active=key.active,
+    )
+
+
+def _to_my_key_detail(db: Session, key: OllamaKey) -> MyKeyDetail:
+    machine_ids = [] if key.all_machines else _key_machine_ids(db, key.id)
+    machine_names = []
+    if machine_ids:
+        rows = db.query(OllamaMachine.name).filter(OllamaMachine.id.in_(machine_ids)).all()
+        machine_names = [r[0] for r in rows]
+    return MyKeyDetail(
+        id=key.id,
+        name=key.name,
+        masked_value=_mask_value(key.value),
+        active=key.active,
+        all_machines=key.all_machines,
+        machine_names=machine_names,
     )
 
 
@@ -678,6 +703,28 @@ def list_my_keys(
     return [_to_my_key_out(k) for k in keys]
 
 
+@router.get("/keys/mine/{key_id}", response_model=MyKeyDetail)
+def get_my_key(
+    key_id: int,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    key = _get_own_key_or_404(db, key_id, user.id)
+    return _to_my_key_detail(db, key)
+
+
+@router.get("/keys/mine/{key_id}/usage", response_model=KeyUsageOut)
+def get_my_key_usage(
+    key_id: int,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    key = _get_own_key_or_404(db, key_id, user.id)
+    return _compute_key_usage(db, key.id)
+
+
 @router.get("/keys/mine/{key_id}/reveal", response_model=KeyValueOut)
 def reveal_my_key(
     key_id: int,
@@ -761,15 +808,7 @@ def get_key(
     return _to_key_detail(db, key)
 
 
-@router.get("/keys/{key_id}/usage", response_model=KeyUsageOut)
-def get_key_usage(
-    key_id: int,
-    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
-    db: Session = Depends(get_db),
-):
-    _require_role(roles, "machines")
-    _get_key_or_404(db, key_id)
-
+def _compute_key_usage(db: Session, key_id: int) -> KeyUsageOut:
     recent_rows = (
         db.query(OllamaKeyLog)
         .filter(OllamaKeyLog.key_id == key_id)
@@ -802,6 +841,17 @@ def get_key_usage(
         hourly=_bucketize(hourly_rows, day_start, 3600, 24),
         daily=_bucketize(daily_rows, month_start, 86400, 30),
     )
+
+
+@router.get("/keys/{key_id}/usage", response_model=KeyUsageOut)
+def get_key_usage(
+    key_id: int,
+    roles: list[str] = Depends(require_module_role(MODULE_NAME)),
+    db: Session = Depends(get_db),
+):
+    _require_role(roles, "machines")
+    _get_key_or_404(db, key_id)
+    return _compute_key_usage(db, key_id)
 
 
 @router.patch("/keys/{key_id}", response_model=KeyDetail)

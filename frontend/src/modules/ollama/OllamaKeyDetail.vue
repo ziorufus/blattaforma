@@ -2,9 +2,18 @@
   <div>
     <div class="d-md-flex justify-content-between align-items-center mb-4">
       <h1 class="mb-3 mb-md-0">Chiave: {{ key ? key.name : '' }}</h1>
-      <router-link to="/modules/ollama/chiavi" class="btn btn-outline-secondary d-block d-md-inline">
-        <i class="bi bi-arrow-left me-1"></i>Torna alle chiavi
-      </router-link>
+      <div class="d-md-flex gap-2">
+        <router-link
+          v-if="canManageKeys"
+          to="/modules/ollama/chiavi"
+          class="btn btn-outline-secondary mb-2 mb-md-0 d-block d-md-inline"
+        >
+          <i class="bi bi-arrow-left me-1"></i>Torna alle chiavi
+        </router-link>
+        <router-link to="/modules/ollama" class="btn btn-outline-secondary d-block d-md-inline">
+          <i class="bi bi-arrow-left me-1"></i>Torna alla dashboard
+        </router-link>
+      </div>
     </div>
 
     <div v-if="loading" class="text-muted">Caricamento...</div>
@@ -68,7 +77,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, onMounted } from 'vue'
+import { computed, reactive, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api/axios'
 import { useAuthStore } from '../../stores/auth'
@@ -84,11 +93,19 @@ const key = ref(null)
 const usage = reactive({ recent: [], hourly: [], daily: [] })
 const loading = ref(true)
 
-function canManage() {
+// Questo componente serve due route: quella "admin" (chiavi/:id, qualunque
+// chiave, richiede il ruolo "machines") e quella "owner" (mie-chiavi/:id,
+// solo le proprie chiavi, autorizzazione delegata al backend). Le due viste
+// sono identiche a parte l'endpoint chiamato; il tasto "Torna alle chiavi"
+// compare in entrambe per chi ha il ruolo "machines".
+const isAdminView = route.name === 'module-ollama-chiave-dettaglio'
+const apiBase = isAdminView ? 'keys' : 'keys/mine'
+
+const canManageKeys = computed(() => {
   if (auth.isAdmin) return true
   const mod = auth.modules.find((m) => m.name === 'ollama')
   return !!mod && mod.granted_roles.includes('machines')
-}
+})
 
 function formatDateTime(iso) {
   return new Date(iso).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })
@@ -111,14 +128,19 @@ async function load() {
   try {
     const keyId = route.params.id
     const [keyRes, usageRes] = await Promise.all([
-      api.get(`/api/modules/ollama/keys/${keyId}`),
-      api.get(`/api/modules/ollama/keys/${keyId}/usage`),
+      api.get(`/api/modules/ollama/${apiBase}/${keyId}`),
+      api.get(`/api/modules/ollama/${apiBase}/${keyId}/usage`),
     ])
     key.value = keyRes.data
     usage.recent = usageRes.data.recent
     usage.hourly = usageRes.data.hourly
     usage.daily = usageRes.data.daily
   } catch (e) {
+    if (!isAdminView && e.response && e.response.status === 404) {
+      toast.error('Chiave non trovata.')
+      router.replace('/modules/ollama')
+      return
+    }
     toast.apiError(e, 'Impossibile caricare i dati della chiave.')
   } finally {
     loading.value = false
@@ -126,7 +148,7 @@ async function load() {
 }
 
 onMounted(async () => {
-  if (!canManage()) {
+  if (isAdminView && !canManageKeys.value) {
     router.replace({ name: 'forbidden' })
     return
   }
