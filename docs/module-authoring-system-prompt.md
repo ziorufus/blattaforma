@@ -127,7 +127,7 @@ import PublicStatus from './PublicStatus.vue'
 
 export default {
   name: 'api-status',
-  routes: [{ path: '', name: 'status', component: PublicStatus }],
+  routes: [{ path: '', name: 'status', label: 'Stato dei servizi', component: PublicStatus }],
 }
 ```
 
@@ -138,6 +138,12 @@ modulo che non crea questo file non ha nessuna pagina pubblica: è un opt-in
 esplicito, e router/index.js non contiene né deve contenere alcun
 riferimento a moduli specifici (né per le pagine protette né per quelle
 pubbliche) — non toccarlo per aggiungere una pagina pubblica.
+
+A differenza di `index.js`, in `public.js` ogni rotta deve avere un `label`
+(nome leggibile mostrato agli utenti anonimi): il menu "Pagine pubbliche"
+nella navbar e l'elenco nella pagina di login pescano automaticamente da
+`router/publicPages` (esportato da `router/index.js`), quindi anche qui non
+va toccato nulla per far comparire la pagina.
 
 Attenzione: una pagina pubblica non ha accesso allo store `auth` con dati
 utili (nessun login), e deve chiamare solo endpoint del proprio modulo

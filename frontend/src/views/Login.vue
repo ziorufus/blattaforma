@@ -11,11 +11,21 @@
           <i class="bi bi-google me-2"></i>Accedi con Google
         </button>
       </div>
+      <div class="card-body border-top pt-3" v-if="publicPages.length > 0">
+        <p class="text-muted small mb-2">Pagine pubbliche disponibili senza account:</p>
+        <ul class="list-unstyled mb-0">
+          <li v-for="p in publicPages" :key="p.path">
+            <router-link :to="p.path">{{ p.label }}</router-link>
+          </li>
+        </ul>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
+import { publicPages } from '../router'
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 function login() {

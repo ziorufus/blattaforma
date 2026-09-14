@@ -16,10 +16,41 @@
           <li class="nav-item">
             <router-link class="nav-link" to="/">Dashboard</router-link>
           </li>
-          <li class="nav-item" v-for="m in auth.accessibleModules" :key="m.name">
-            <router-link class="nav-link" :to="`/modules/${m.name}`">
-              {{ m.label }}
-            </router-link>
+          <li class="nav-item dropdown" v-if="auth.accessibleModules.length > 0">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+            >
+              Moduli
+            </a>
+            <ul class="dropdown-menu">
+              <li v-for="m in auth.accessibleModules" :key="m.name">
+                <router-link class="dropdown-item" :to="`/modules/${m.name}`">
+                  {{ m.label }}
+                </router-link>
+              </li>
+            </ul>
+          </li>
+          <li class="nav-item dropdown" v-if="publicPages.length > 0">
+            <a
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+            >
+              Pagine pubbliche
+            </a>
+            <ul class="dropdown-menu">
+              <li v-for="p in publicPages" :key="p.path">
+                <router-link class="dropdown-item" :to="p.path">
+                  {{ p.label }}
+                </router-link>
+              </li>
+            </ul>
           </li>
           <li class="nav-item dropdown" v-if="auth.isAdmin">
             <a
@@ -83,6 +114,7 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { publicPages } from '../router'
 
 const auth = useAuthStore()
 const router = useRouter()

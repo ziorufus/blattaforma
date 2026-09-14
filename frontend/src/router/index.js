@@ -34,6 +34,7 @@ for (const path in moduleManifests) {
 const publicManifests = import.meta.glob('../modules/*/public.js', { eager: true })
 
 const publicRoutes = []
+export const publicPages = []
 for (const path in publicManifests) {
   const manifest = publicManifests[path].default
   for (const r of manifest.routes) {
@@ -44,6 +45,7 @@ for (const path in publicManifests) {
       component: r.component,
       meta: { requiresAuth: false },
     })
+    publicPages.push({ path: fullPath, label: r.label || manifest.name })
   }
 }
 
