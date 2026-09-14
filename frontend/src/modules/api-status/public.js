@@ -1,0 +1,6 @@
+import PublicStatus from './PublicStatus.vue'
+
+export default {
+  name: 'api-status',
+  routes: [{ path: '', name: 'status', component: PublicStatus }],
+}
