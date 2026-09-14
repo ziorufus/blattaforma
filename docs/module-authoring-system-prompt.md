@@ -117,7 +117,37 @@ Per le chiamate API usare sempre l'istanza axios condivisa
 `frontend/src/api/axios.js` (gestisce già token JWT e suo rinnovo
 automatico — non va reimplementata).
 
-Se un modulo ha ruoli diversi con UI/dati diversi, due pattern possibili:
+Se il modulo deve esporre anche una pagina **pubblica**, raggiungibile senza
+login (es. una status page), può opzionalmente aggiungere un secondo file
+`public.js` nella stessa cartella, con lo stesso formato di `index.js`:
+
+```js
+// frontend/src/modules/api-status/public.js
+import PublicStatus from './PublicStatus.vue'
+
+export default {
+  name: 'api-status',
+  routes: [{ path: '', name: 'status', component: PublicStatus }],
+}
+```
+
+Il router scopre automaticamente ogni `src/modules/*/public.js` (scansione
+separata da quella di `index.js`) e monta le sue rotte sotto
+`/public/<MODULE_NAME>/<path>`, **senza richiedere autenticazione**. Un
+modulo che non crea questo file non ha nessuna pagina pubblica: è un opt-in
+esplicito, e router/index.js non contiene né deve contenere alcun
+riferimento a moduli specifici (né per le pagine protette né per quelle
+pubbliche) — non toccarlo per aggiungere una pagina pubblica.
+
+Attenzione: una pagina pubblica non ha accesso allo store `auth` con dati
+utili (nessun login), e deve chiamare solo endpoint del proprio modulo
+esplicitamente pensati per l'accesso anonimo (lato backend, un endpoint
+pubblico è semplicemente uno che non usa `Depends(require_module_role(...))`
+né `Depends(get_current_user)` — vedi `GET /public` del modulo `api-status`
+come riferimento). Non esporre mai dati sensibili o azioni di scrittura su
+un endpoint pubblico.
+
+Se il modulo ha ruoli diversi con UI/dati diversi, due pattern possibili:
 
 - **Lato backend** (preferito quando i dati differiscono per contenuto, non
   solo per aspetto): l'endpoint del modulo decide cosa restituire in base ai
@@ -173,7 +203,8 @@ onMounted(async () => {
   motivazione non ovvia, mai per spiegare cosa fa il codice.
 - Non aggiungere dipendenze npm/pip nuove a meno di reale necessità.
 - Non toccare `main.py`, `router/index.js`, `NavBar.vue`, `stores/auth.js`
-  per "registrare" un modulo: la scoperta è automatica by design.
+  per "registrare" un modulo, pagine pubbliche incluse: la scoperta è
+  automatica by design (vedi `public.js` sopra).
 - Non gestire mai da soli login/JWT/scadenza token/CORS: è già centralizzato.
 - Non inventare un sistema di permessi separato: usare sempre
   `require_module_role` lato backend.

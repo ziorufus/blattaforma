@@ -28,6 +28,25 @@ for (const path in moduleManifests) {
   }
 }
 
+// Auto-discover unauthenticated pages under src/modules/<name>/public.js
+// (same manifest shape as index.js). Anything exported there is reachable
+// without login, so a module opts in explicitly by creating this file.
+const publicManifests = import.meta.glob('../modules/*/public.js', { eager: true })
+
+const publicRoutes = []
+for (const path in publicManifests) {
+  const manifest = publicManifests[path].default
+  for (const r of manifest.routes) {
+    const fullPath = `/public/${manifest.name}/${r.path}`.replace(/\/+$/, '')
+    publicRoutes.push({
+      path: fullPath,
+      name: `public-${manifest.name}-${r.name || r.path || 'index'}`,
+      component: r.component,
+      meta: { requiresAuth: false },
+    })
+  }
+}
+
 const routes = [
   { path: '/login', name: 'login', component: Login, meta: { requiresAuth: false } },
   {
@@ -56,6 +75,7 @@ const routes = [
     meta: { requiresAuth: true, requiresAdmin: true },
   },
   ...moduleRoutes,
+  ...publicRoutes,
   { path: '/403', name: 'forbidden', component: Forbidden, meta: { requiresAuth: true } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFound, meta: { requiresAuth: true } },
 ]
