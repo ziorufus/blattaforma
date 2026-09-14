@@ -12,5 +12,5 @@ export function statusLabel(status) {
 
 export function formatDateTime(value) {
   if (!value) return 'Mai controllata'
-  return new Date(value).toLocaleString()
+  return new Date(value).toLocaleString('it-IT')
 }
