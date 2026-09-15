@@ -83,13 +83,23 @@
             </div>
             <div class="mb-3">
               <label class="form-label">Chiave di controllo</label>
-              <input
-                v-model="form.control_key"
-                type="text"
-                class="form-control"
-                :placeholder="form.id ? 'Lascia vuoto per non modificarla' : ''"
-                :required="!form.id"
-              />
+              <div class="input-group">
+                <input
+                  v-model="form.control_key"
+                  type="text"
+                  class="form-control"
+                  :placeholder="form.id ? 'Lascia vuoto per non modificarla' : ''"
+                  :required="!form.id"
+                />
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  title="Genera valore casuale"
+                  @click="generateControlKey"
+                >
+                  <i class="bi bi-dice-5"></i>
+                </button>
+              </div>
               <div class="form-text">
                 Deve coincidere con la chiave presentata dal backend a questa macchina (vedi
                 <code>helpers/macos-daemons</code>).
@@ -143,6 +153,12 @@ function onNameInput() {
   if (!form.id && !slugTouched) {
     form.slug = slugify(form.name)
   }
+}
+
+function generateControlKey() {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  form.control_key = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 async function loadMachines() {
