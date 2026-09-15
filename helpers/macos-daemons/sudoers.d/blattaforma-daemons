@@ -1,0 +1,10 @@
+# Install as /etc/sudoers.d/blattaforma-daemons (owned by root:wheel, mode 0440).
+# Always validate before installing:
+#   visudo -c -f /etc/sudoers.d/blattaforma-daemons
+#
+# Grants the user that runs the macos-daemons helper (the same user as the
+# machine's existing nginx/ollama services, e.g. "alessio") passwordless
+# sudo on EXACTLY ONE absolute path, with no argument wildcards. daemonctl
+# itself re-validates action/label against the root-only whitelist file --
+# this line does not need to (and must not try to) parse arguments.
+alessio ALL=(root) NOPASSWD: /opt/blattaforma-daemons/bin/daemonctl

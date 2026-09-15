@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Root-only wrapper invoked via `sudo -n` by the local helper service.
+
+This is the ONLY executable sudoers grants NOPASSWD access to (see
+sudoers.d/blattaforma-daemons) -- it is therefore the single place that
+decides which LaunchDaemon labels and actions are legitimate. Everything
+upstream of this script (nginx, the local helper) is defense in depth, not
+the security boundary: this script must not trust its caller and must
+re-validate everything against the whitelist file below.
+
+Deployment: copy to /opt/blattaforma-daemons/bin/daemonctl, owned by
+root:wheel, mode 0700 (see ../README.md). Never invoke a shell with
+untrusted input -- every subprocess call below uses an explicit argv list.
+
+Usage: daemonctl <start|stop|enable|disable|status> <label>
+"""
+
+import json
+import subprocess
+import sys
+
+WHITELIST_PATH = "/opt/blattaforma-daemons/etc/daemons-whitelist.json"
+ACTIONS = {"start", "stop", "enable", "disable", "status"}
+
+
+def fail(message, code=1):
+    print(json.dumps({"success": False, "stderr": message}))
+    sys.exit(code)
+
+
+def load_whitelist():
+    try:
+        with open(WHITELIST_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        fail(f"cannot read whitelist: {e}")
+
+
+def run(args):
+    return subprocess.run(args, capture_output=True, text=True)
+
+
+def main():
+    if len(sys.argv) != 3:
+        fail("usage: daemonctl <start|stop|enable|disable|status> <label>", 2)
+
+    action, label = sys.argv[1], sys.argv[2]
+    if action not in ACTIONS:
+        fail(f"unknown action: {action}", 2)
+
+    whitelist = load_whitelist()
+    entry = whitelist.get(label)
+    if entry is None:
+        fail(f"label not whitelisted: {label}", 3)
+
+    plist_path = entry["plist_path"]
+    domain_target = f"system/{label}"
+
+    if action == "status":
+        printed = run(["launchctl", "print", domain_target])
+        loaded = printed.returncode == 0
+        running = loaded and "state = running" in printed.stdout
+
+        disabled_list = run(["launchctl", "print-disabled", "system"])
+        disabled = f'"{label}" => disabled' in disabled_list.stdout
+
+        print(json.dumps({"loaded": loaded, "running": running, "enabled": not disabled}))
+        return
+
+    if action == "start":
+        result = run(["launchctl", "bootstrap", "system", plist_path])
+    elif action == "stop":
+        result = run(["launchctl", "bootout", domain_target])
+    elif action == "enable":
+        result = run(["launchctl", "enable", domain_target])
+    else:
+        result = run(["launchctl", "disable", domain_target])
+
+    print(
+        json.dumps(
+            {
+                "success": result.returncode == 0,
+                "stdout": result.stdout.strip(),
+                "stderr": result.stderr.strip(),
+            }
+        )
+    )
+    sys.exit(0 if result.returncode == 0 else 1)
+
+
+if __name__ == "__main__":
+    main()

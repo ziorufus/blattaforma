@@ -1,0 +1,6 @@
+{
+  "com.example.miodemone": {
+    "display_name": "Il mio demone",
+    "plist_path": "/Library/LaunchDaemons/com.example.miodemone.plist"
+  }
+}
