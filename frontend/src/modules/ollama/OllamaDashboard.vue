@@ -736,4 +736,7 @@ onUnmounted(() => {
   display: inline-block;
   font-size: 1.3rem;
 }
+.nobr {
+  white-space: nowrap;
+}
 </style>
