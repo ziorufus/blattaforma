@@ -65,7 +65,6 @@ class DaemonDefinition(Base):
     )
     label: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    plist_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -113,12 +112,10 @@ class MachineOut(BaseModel):
 class DaemonDefinitionCreate(BaseModel):
     label: str = Field(pattern=LABEL_PATTERN)
     display_name: str
-    plist_path: str
 
 
 class DaemonDefinitionUpdate(BaseModel):
     display_name: str | None = None
-    plist_path: str | None = None
 
 
 class DaemonStatusOut(BaseModel):
@@ -126,7 +123,6 @@ class DaemonStatusOut(BaseModel):
     machine_id: int
     label: str
     display_name: str
-    plist_path: str
     loaded: bool | None = None
     running: bool | None = None
     enabled: bool | None = None
@@ -264,7 +260,6 @@ async def _to_status_out(machine: DaemonMachine, definition: DaemonDefinition) -
         machine_id=definition.machine_id,
         label=definition.label,
         display_name=definition.display_name,
-        plist_path=definition.plist_path,
     )
     try:
         data = await _call_daemon_status(machine, definition.label)
@@ -391,7 +386,7 @@ async def update_daemon(
     definition = _get_definition_or_404(db, machine_id, daemon_id)
 
     data = payload.model_dump(exclude_unset=True)
-    for field in ("display_name", "plist_path"):
+    for field in ("display_name",):
         if data.get(field):
             setattr(definition, field, data[field])
 

@@ -119,16 +119,6 @@
               <label class="form-label">Label</label>
               <input v-model="form.label" type="text" class="form-control" placeholder="com.azienda.miodemone" required />
             </div>
-            <div class="mb-3">
-              <label class="form-label">Percorso plist</label>
-              <input
-                v-model="form.plist_path"
-                type="text"
-                class="form-control"
-                placeholder="/Library/LaunchDaemons/com.azienda.miodemone.plist"
-                required
-              />
-            </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" @click="modalInstance.hide()">Annulla</button>
@@ -157,7 +147,7 @@ const saving = ref(false)
 
 const modalEl = ref(null)
 let modalInstance = null
-const form = reactive({ machineId: null, display_name: '', label: '', plist_path: '' })
+const form = reactive({ machineId: null, display_name: '', label: '' })
 
 async function loadMachines() {
   loadingMachines.value = true
@@ -227,7 +217,6 @@ function openAddDaemon(machineId) {
   form.machineId = machineId
   form.display_name = ''
   form.label = ''
-  form.plist_path = ''
   modalInstance.show()
 }
 
@@ -237,7 +226,6 @@ async function saveDaemon() {
     await api.post(`/api/modules/macos-daemons/machines/${form.machineId}/daemons`, {
       display_name: form.display_name,
       label: form.label,
-      plist_path: form.plist_path,
     })
     modalInstance.hide()
     await loadDaemons(form.machineId)
