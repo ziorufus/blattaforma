@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="d-md-flex justify-content-between align-items-center mb-4">
-      <h1 class="mb-3 mb-md-0">Demoni macOS</h1>
+      <h1 class="mb-3 mb-md-0">Demoni</h1>
       <div class="d-md-flex gap-2">
         <router-link to="/modules/macos-daemons/log" class="btn btn-outline-secondary mb-3 mb-md-0 d-block d-md-inline">
           <i class="bi bi-clock-history me-1"></i>Log azioni

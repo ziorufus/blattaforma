@@ -28,7 +28,7 @@ from ..deps import get_current_user, get_db, require_module_role
 logger = logging.getLogger("blattaforma.modules.macos_daemons")
 
 MODULE_NAME = "macos-daemons"
-MODULE_LABEL = "Demoni macOS"
+MODULE_LABEL = "Demoni"
 MODULE_ROLES = ["operate"]
 
 MACOS_DAEMONS_PORT = 11437
