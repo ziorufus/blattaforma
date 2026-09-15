@@ -46,8 +46,17 @@
                 {{ k.active ? 'Attivo' : 'Disattivo' }}
               </span>
             </td>
-            <td><code>{{ k.masked_value }}</code></td>
+            <td><code>{{ k.revealed ? k.plainValue : k.masked_value }}</code></td>
             <td class="text-end nobr">
+              <button
+                class="btn btn-sm btn-outline-secondary me-2"
+                title="Mostra/nascondi valore"
+                :disabled="k.revealing"
+                @click="toggleReveal(k)"
+              >
+                <span v-if="k.revealing" class="spinner-border spinner-border-sm"></span>
+                <i v-else class="bi" :class="k.revealed ? 'bi-eye-slash' : 'bi-eye'"></i>
+              </button>
               <button class="btn btn-sm btn-outline-secondary me-2" @click="openEdit(k)">
                 <i class="bi bi-pencil-fill"></i>
               </button>
@@ -186,7 +195,12 @@ async function loadKeys() {
   loading.value = true
   try {
     const { data } = await api.get('/api/modules/ollama/keys')
-    keys.value = data
+    keys.value = data.map((k) => ({
+      ...k,
+      revealed: false,
+      revealing: false,
+      plainValue: null,
+    }))
   } catch (e) {
     toast.apiError(e, 'Impossibile caricare le chiavi.')
   } finally {
@@ -231,6 +245,27 @@ function generateValue() {
 function openCreate() {
   resetForm()
   modalInstance.show()
+}
+
+async function toggleReveal(k) {
+  if (k.revealed) {
+    k.revealed = false
+    return
+  }
+  if (k.plainValue) {
+    k.revealed = true
+    return
+  }
+  k.revealing = true
+  try {
+    const { data } = await api.get(`/api/modules/ollama/keys/${k.id}`)
+    k.plainValue = data.value
+    k.revealed = true
+  } catch (e) {
+    toast.apiError(e, 'Impossibile recuperare la chiave.')
+  } finally {
+    k.revealing = false
+  }
 }
 
 async function openEdit(key) {
