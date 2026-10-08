@@ -1,0 +1,3 @@
+if ($http_authorization != "Bearer ${API_TOKEN}") {
+    return 401;
+}
