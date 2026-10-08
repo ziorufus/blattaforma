@@ -1,7 +1,9 @@
 <template>
   <div>
     <div class="d-flex align-items-center mb-4">
-      <img src="/blattaforma-logo.png" alt="Blattaforma" height="32" class="me-2" />
+      <router-link to="/login" title="Torna alla home">
+        <img src="/blattaforma-logo.png" alt="Blattaforma" height="32" class="me-2" />
+      </router-link>
       <h1 class="mb-0">Stato delle API</h1>
     </div>
 
