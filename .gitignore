@@ -19,3 +19,7 @@ frontend/package-lock.json
 
 *.db
 **/__pycache__/
+.env
+db/*
+_old
+

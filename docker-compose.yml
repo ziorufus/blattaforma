@@ -1,0 +1,25 @@
+
+services:
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DB_PATH: /data/blattaforma.db
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - type: bind
+        source: ${DB_DIR:?Devi definire DB_DIR nel file .env}
+        target: /data
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-5173}:4173"
