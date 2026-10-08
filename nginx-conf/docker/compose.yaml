@@ -1,0 +1,21 @@
+services:
+  nginx:
+    build:
+      context: .
+      args:
+        NGINX_VERSION: ${NGINX_VERSION:-1.31.3}
+    image: blattaforma-nginx:${NGINX_VERSION:-1.31.3}
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DOMAIN: ${DOMAIN:-}
+      BLATTAFORMA_HOST: ${BLATTAFORMA_HOST:?Set BLATTAFORMA_HOST}
+      OLLAMA_CODE: ${OLLAMA_CODE:?Set OLLAMA_CODE}
+      API_TOKEN: ${API_TOKEN:-}
+      CERTBOT_EMAIL: ${CERTBOT_EMAIL:-}
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - letsencrypt_webroot:/var/www/letsencrypt
+volumes:
+  letsencrypt:
+  letsencrypt_webroot:

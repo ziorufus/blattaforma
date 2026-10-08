@@ -1,0 +1,11 @@
+# HTTP: used for ACME HTTP-01 validation, redirects everything else to HTTPS.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type text/plain;
+    }
+    location / { return 301 https://\$host\$request_uri; }
+}
