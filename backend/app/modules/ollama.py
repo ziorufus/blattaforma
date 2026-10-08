@@ -7,6 +7,7 @@ the frontend: every call to a machine's Ollama instance is proxied through
 this router, which attaches the key as an `Authorization: Bearer ...` header.
 """
 
+import asyncio
 import fcntl
 import logging
 import math
@@ -264,6 +265,16 @@ class MachineStatusOut(BaseModel):
     gpu_power_watts: float | None = None
     loaded_models: list[ModelInfo] = []
     available_models: list[ModelInfo] = []
+    error: str | None = None
+
+
+class PublicMachineOut(BaseModel):
+    name: str
+    total_bytes: int | None = None
+    available_bytes: int | None = None
+    gpu_percent: float | None = None
+    gpu_temp_celsius: float | None = None
+    gpu_power_watts: float | None = None
     error: str | None = None
 
 
@@ -1015,6 +1026,35 @@ async def check_token(
 
     if not allowed:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+
+
+# ---------- Public machine load (no Blattaforma auth) ----------
+#
+# Shows RAM/GPU usage per machine for anonymous viewers. Deliberately exposes
+# only the machine name and aggregate RAM/GPU numbers -- no IP address, API
+# keys, or loaded/available model names (those stay behind require_module_role
+# on /machines/{id}/status above). Unlike that endpoint, RAM usage here isn't
+# split into "used by Ollama" vs "other": the frontend renders it as a single
+# bar.
+
+
+async def _public_machine_status(client: httpx.AsyncClient, machine: OllamaMachine) -> PublicMachineOut:
+    out = PublicMachineOut(name=machine.name)
+    try:
+        resp = await client.get(f"http://{machine.ip_address}:{NODE_EXPORTER_PORT}/metrics")
+        resp.raise_for_status()
+        out.total_bytes, out.available_bytes = _parse_memory(resp.text, machine.os)
+        out.gpu_percent, out.gpu_temp_celsius, out.gpu_power_watts = _parse_gpu(resp.text, machine.os)
+    except Exception:
+        out.error = "node_exporter non raggiungibile"
+    return out
+
+
+@router.get("/public/machines", response_model=list[PublicMachineOut])
+async def list_public_machines(db: Session = Depends(get_db)):
+    machines = db.query(OllamaMachine).order_by(OllamaMachine.id).all()
+    async with httpx.AsyncClient(timeout=STATUS_TIMEOUT) as client:
+        return await asyncio.gather(*(_public_machine_status(client, m) for m in machines))
 
 
 # ---------- Status (any granted role) ----------
