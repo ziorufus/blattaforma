@@ -270,6 +270,7 @@ class MachineStatusOut(BaseModel):
 
 class PublicMachineOut(BaseModel):
     name: str
+    os: str
     total_bytes: int | None = None
     available_bytes: int | None = None
     gpu_percent: float | None = None
@@ -1039,7 +1040,7 @@ async def check_token(
 
 
 async def _public_machine_status(client: httpx.AsyncClient, machine: OllamaMachine) -> PublicMachineOut:
-    out = PublicMachineOut(name=machine.name)
+    out = PublicMachineOut(name=machine.name, os=machine.os)
     try:
         resp = await client.get(f"http://{machine.ip_address}:{NODE_EXPORTER_PORT}/metrics")
         resp.raise_for_status()

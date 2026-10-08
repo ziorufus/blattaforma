@@ -33,7 +33,10 @@
             </tbody>
             <tbody v-else>
               <tr v-for="m in machines" :key="m.name">
-                <td class="fw-semibold">{{ m.name }}</td>
+                <td>
+                  <span class="rounded-logo"><i class="bi" :class="{'bi-apple': m.os === 'macos', 'bi-tux': m.os === 'linux'}"></i></span>
+                  <div class="fw-semibold">{{ m.name }}</div>
+                </td>
                 <td>
                   <div class="progress-container">
                     <template v-if="m.total_bytes != null">
@@ -151,5 +154,9 @@ onUnmounted(() => {
 }
 .progress-container {
   padding-top: 5px;
+}
+.rounded-logo {
+  display: inline-block;
+  font-size: 1.3rem;
 }
 </style>
