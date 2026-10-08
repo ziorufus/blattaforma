@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 : "${BLATTAFORMA_HOST:?BLATTAFORMA_HOST is required}"
+: "${BLATTAFORMA_PORT:=5173}"
+case "$BLATTAFORMA_PORT" in ''|*[!0-9]*) echo "Invalid BLATTAFORMA_PORT" >&2; exit 1;; esac
 : "${OLLAMA_CODE:?OLLAMA_CODE is required}"
 if [ -n "${DOMAIN:-}" ]; then
     case "$DOMAIN" in *[!a-zA-Z0-9.-]*|.*|*..*|*.) echo "Invalid DOMAIN" >&2; exit 1;; esac
@@ -46,7 +48,7 @@ fi
 if [ -n "${DOMAIN:-}" ]; then
     envsubst '${DOMAIN}' < /tmp/blattaforma/nginx-conf/domain/domain.conf.template > /etc/nginx/servers/00-domain.conf
     if [ -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] && [ -s "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]; then
-        envsubst '${DOMAIN}' < /tmp/blattaforma/nginx-conf/domain/domain-ssl.conf.template > /etc/nginx/servers/01-domain-ssl.conf
+        envsubst '${DOMAIN} ${BLATTAFORMA_PORT}' < /tmp/blattaforma/nginx-conf/domain/domain-ssl.conf.template > /etc/nginx/servers/01-domain-ssl.conf
     fi
 fi
 nginx -t
@@ -57,7 +59,7 @@ if [ -n "${DOMAIN:-}" ] && [ ! -f /etc/nginx/servers/01-domain-ssl.conf ]; then
     else
         certbot certonly --webroot -w /var/www/letsencrypt -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email
     fi
-    envsubst '${DOMAIN}' < /tmp/blattaforma/nginx-conf/domain/domain-ssl.conf.template > /etc/nginx/servers/01-domain-ssl.conf
+    envsubst '${DOMAIN} ${BLATTAFORMA_PORT}' < /tmp/blattaforma/nginx-conf/domain/domain-ssl.conf.template > /etc/nginx/servers/01-domain-ssl.conf
     nginx -t && nginx -s reload
 fi
 # Certbot renew is harmless without a certificate; reload only on successful renewal.
