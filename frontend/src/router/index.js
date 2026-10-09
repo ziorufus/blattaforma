@@ -90,7 +90,7 @@ const router = createRouter({
 router.beforeEach((to) => {
   const auth = useAuthStore()
 
-  if (to.name === 'login' && auth.isAuthenticated) {
+  if (to.name === 'login' && auth.isAuthenticated && !to.query.error) {
     return { path: '/' }
   }
 

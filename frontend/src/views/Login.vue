@@ -6,9 +6,12 @@
       </div>
       <div class="card-body text-center p-4">
         <h1 class="h3 mb-3">Blattaforma</h1>
-        <p class="text-muted mb-4">Accedi con il tuo account Google per continuare.</p>
-        <button class="btn btn-primary w-100" @click="login">
+        <p class="text-muted mb-4">Accedi per continuare.</p>
+        <button class="btn btn-outline-primary w-100 mb-2" @click="loginGoogle">
           <i class="bi bi-google me-2"></i>Accedi con Google
+        </button>
+        <button class="btn btn-outline-primary w-100" @click="loginMicrosoft">
+          <i class="bi bi-microsoft me-2"></i>Accedi con Microsoft
         </button>
       </div>
       <div class="card-body border-top pt-3" v-if="publicPages.length > 0">
@@ -24,12 +27,42 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { publicPages } from '../router'
+import { useAuthStore } from '../stores/auth'
+import { useToastStore } from '../stores/toast'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
-function login() {
+const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
+const toast = useToastStore()
+
+const ERROR_MESSAGES = {
+  unauthorized: 'Il tuo account non è registrato su questa piattaforma. Contatta un amministratore.',
+  oauth_failed: 'Accesso non riuscito. Riprova.',
+}
+
+onMounted(() => {
+  const error = route.query.error
+  if (!error) return
+
+  // Un nuovo tentativo di login è stato appena rifiutato dal backend: non
+  // deve restare silenziosamente attiva un'eventuale sessione precedente
+  // ancora valida nel browser, altrimenti l'utente non si accorge del rifiuto.
+  auth.logout()
+  toast.error(ERROR_MESSAGES[error] || 'Accesso non riuscito. Riprova.')
+  router.replace({ name: 'login' })
+})
+
+function loginGoogle() {
   window.location.href = `${API_BASE}/api/auth/google/login`
+}
+
+function loginMicrosoft() {
+  window.location.href = `${API_BASE}/api/auth/microsoft/login`
 }
 </script>
 

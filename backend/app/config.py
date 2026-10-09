@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
+    microsoft_tenant_id: str = "common"
+
     secret_key: str = "change-me-to-a-random-secret"
     access_token_expire_minutes: int = 30
 

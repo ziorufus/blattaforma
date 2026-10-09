@@ -22,6 +22,23 @@ oauth.register(
     server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
     client_kwargs={"scope": "openid email profile"},
 )
+oauth.register(
+    name="microsoft",
+    client_id=settings.microsoft_client_id,
+    client_secret=settings.microsoft_client_secret,
+    server_metadata_url=(
+        f"https://login.microsoftonline.com/{settings.microsoft_tenant_id}"
+        "/v2.0/.well-known/openid-configuration"
+    ),
+    # Niente scope "openid" (e quindi neanche "email"/"profile", che hanno
+    # senso solo insieme a "openid"): con il tenant multi-tenant "common"
+    # l'id_token ha un claim "iss" col GUID del tenant reale, che non
+    # corrisponde mai all'issuer "template" dichiarato dal discovery
+    # document, e Authlib rifiuta il token. Usando solo lo scope Graph
+    # "User.Read" niente id_token viene emesso: l'email si ottiene da
+    # Graph /me nel callback, che è comunque la fonte autoritativa.
+    client_kwargs={"scope": "User.Read"},
+)
 
 
 @router.get("/google/login")
@@ -51,6 +68,48 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
 
     user.name = userinfo.get("name") or user.name
     user.picture = userinfo.get("picture") or user.picture
+    user.last_login = datetime.now(timezone.utc)
+    db.commit()
+
+    jwt_token = create_access_token(user.id, user.email, user.is_admin)
+    return RedirectResponse(f"{settings.frontend_url}/login/callback#token={jwt_token}")
+
+
+@router.get("/microsoft/login")
+async def microsoft_login(request: Request):
+    redirect_uri = f"{settings.base_url}/api/auth/microsoft/callback"
+    # Senza "prompt" Microsoft riusa la sessione SSO del browser e accede
+    # subito con l'ultimo account usato, senza mostrare il selettore.
+    return await oauth.microsoft.authorize_redirect(request, redirect_uri, prompt="select_account")
+
+
+@router.get("/microsoft/callback")
+async def microsoft_callback(request: Request, db: Session = Depends(get_db)):
+    try:
+        token = await oauth.microsoft.authorize_access_token(request)
+    except OAuthError:
+        return RedirectResponse(f"{settings.frontend_url}/login?error=oauth_failed")
+
+    userinfo = token.get("userinfo") or {}
+
+    # Il claim "email" dell'id_token Microsoft non è affidabile su tutti i
+    # tenant/tipi di account: si interroga Graph /me per l'indirizzo reale.
+    profile: dict = {}
+    try:
+        resp = await oauth.microsoft.get("https://graph.microsoft.com/v1.0/me", token=token)
+        profile = resp.json()
+    except Exception:
+        profile = {}
+
+    email = profile.get("mail") or profile.get("userPrincipalName") or userinfo.get("email")
+    if not email:
+        return RedirectResponse(f"{settings.frontend_url}/login?error=oauth_failed")
+
+    user = crud.get_user_by_email(db, email)
+    if user is None or not user.is_active:
+        return RedirectResponse(f"{settings.frontend_url}/login?error=unauthorized")
+
+    user.name = profile.get("displayName") or userinfo.get("name") or user.name
     user.last_login = datetime.now(timezone.utc)
     db.commit()
 

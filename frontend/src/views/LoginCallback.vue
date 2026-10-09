@@ -24,7 +24,7 @@ onMounted(async () => {
   const token = new URLSearchParams(raw).get('token')
 
   if (!token) {
-    toast.error('Accesso con Google non riuscito. Riprova.')
+    toast.error('Accesso non riuscito. Riprova.')
     router.replace({ name: 'login' })
     return
   }
@@ -36,7 +36,7 @@ onMounted(async () => {
     router.replace({ path: '/' })
   } catch (e) {
     auth.logout()
-    toast.error('Il tuo account Google non è registrato su questa piattaforma. Contatta un amministratore.')
+    toast.error('Il tuo account non è registrato su questa piattaforma. Contatta un amministratore.')
     router.replace({ name: 'login' })
   }
 })
