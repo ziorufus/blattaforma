@@ -63,3 +63,21 @@ export const useAuthStore = defineStore('auth', {
     },
   },
 })
+
+// Il logout in una scheda scrive solo nel suo localStorage locale: le altre
+// schede aperte sullo stesso sito hanno già il token in memoria (nel loro
+// Pinia store) e continuerebbero a usarlo, resuscitandolo in localStorage
+// alla prima chiamata autenticata. L'evento "storage" (che il browser invia
+// automaticamente alle ALTRE schede quando cambia localStorage, mai a quella
+// che ha fatto la modifica) permette di propagare subito il logout ovunque.
+window.addEventListener('storage', (event) => {
+  if (event.key === TOKEN_KEY && !event.newValue) {
+    const auth = useAuthStore()
+    if (auth.token) {
+      auth.logout()
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+    }
+  }
+})
