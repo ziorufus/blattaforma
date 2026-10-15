@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useConfigStore } from '../stores/config'
 
 import Login from '../views/Login.vue'
 import LoginCallback from '../views/LoginCallback.vue'
@@ -9,6 +10,7 @@ import NotFound from '../views/NotFound.vue'
 import AdminUsers from '../views/admin/Users.vue'
 import AdminGroups from '../views/admin/Groups.vue'
 import AdminModules from '../views/admin/Modules.vue'
+import AdminOptions from '../views/admin/Options.vue'
 
 // Auto-discover feature modules dropped under src/modules/<name>/index.js.
 // Each manifest exports { name, routes: [{ path, name, component }] }.
@@ -23,7 +25,7 @@ for (const path in moduleManifests) {
       path: fullPath,
       name: `module-${manifest.name}-${r.name || r.path || 'index'}`,
       component: r.component,
-      meta: { requiresAuth: true, requiresModule: manifest.name },
+      meta: { requiresAuth: true, requiresModule: manifest.name, module: manifest.name },
     })
   }
 }
@@ -43,9 +45,9 @@ for (const path in publicManifests) {
       path: fullPath,
       name: `public-${manifest.name}-${r.name || r.path || 'index'}`,
       component: r.component,
-      meta: { requiresAuth: false },
+      meta: { requiresAuth: false, module: manifest.name },
     })
-    publicPages.push({ path: fullPath, label: r.label || manifest.name })
+    publicPages.push({ path: fullPath, label: r.label || manifest.name, module: manifest.name })
   }
 }
 
@@ -76,6 +78,12 @@ const routes = [
     component: AdminModules,
     meta: { requiresAuth: true, requiresAdmin: true },
   },
+  {
+    path: '/admin/options',
+    name: 'admin-options',
+    component: AdminOptions,
+    meta: { requiresAuth: true, requiresAdmin: true },
+  },
   ...moduleRoutes,
   ...publicRoutes,
   { path: '/403', name: 'forbidden', component: Forbidden, meta: { requiresAuth: true } },
@@ -92,6 +100,12 @@ router.beforeEach((to) => {
 
   if (to.name === 'login' && auth.isAuthenticated && !to.query.error) {
     return { path: '/' }
+  }
+
+  // Un modulo disattivato sparisce per tutti, admin compresi, pagine
+  // pubbliche incluse (il backend risponde 404 alle sue API).
+  if (to.meta.module && !useConfigStore().isModuleEnabled(to.meta.module)) {
+    return { name: 'not-found', params: { pathMatch: to.path.substring(1).split('/') } }
   }
 
   if (to.meta.requiresAuth === false) {

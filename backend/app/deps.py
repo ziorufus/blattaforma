@@ -1,11 +1,11 @@
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from . import crud, models
+from . import crud, models, options
 from .auth import decode_access_token
 from .database import get_db
 
-__all__ = ["get_db", "get_current_user", "require_admin", "require_module_role"]
+__all__ = ["get_db", "get_current_user", "require_admin", "require_module_role", "require_module_enabled"]
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.User:
@@ -47,5 +47,16 @@ def require_module_role(module_name: str):
         if not roles:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to this module")
         return roles
+
+    return dependency
+
+
+def require_module_enabled(module_name: str):
+    """Applicata dal module_loader a tutte le rotte di un modulo, comprese
+    quelle pubbliche: un modulo disattivato risponde 404 a chiunque."""
+
+    def dependency(db: Session = Depends(get_db)) -> None:
+        if not options.is_module_enabled(db, module_name):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Modulo disattivato")
 
     return dependency

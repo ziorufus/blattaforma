@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from .. import options
 from ..config import BASE_DIR
 from ..database import Base, SessionLocal, engine
 from ..datetime_utils import UtcDatetime
@@ -242,7 +243,8 @@ def _scheduler_loop() -> None:
     logger.info("API Status: scheduler dei controlli avviato")
     while True:
         try:
-            _check_due_targets()
+            if options.module_enabled(MODULE_NAME):
+                _check_due_targets()
         except Exception:
             logger.exception("API Status: giro di controlli fallito")
         time.sleep(_SCHEDULER_TICK_SECONDS)

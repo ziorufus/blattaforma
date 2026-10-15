@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from .. import crud
+from .. import crud, options
 from ..auth import create_access_token
 from ..config import settings
 from ..deps import get_current_user, get_db
@@ -41,14 +41,26 @@ oauth.register(
 )
 
 
+def _provider_disabled(db: Session, option_key: str) -> bool:
+    return not getattr(options.get_options(db, options.GLOBAL_SCOPE), option_key)
+
+
+def _provider_disabled_redirect() -> RedirectResponse:
+    return RedirectResponse(f"{settings.frontend_url}/login?error=provider_disabled")
+
+
 @router.get("/google/login")
-async def google_login(request: Request):
+async def google_login(request: Request, db: Session = Depends(get_db)):
+    if _provider_disabled(db, "google_auth_enabled"):
+        return _provider_disabled_redirect()
     redirect_uri = f"{settings.base_url}/api/auth/google/callback"
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
 @router.get("/google/callback")
 async def google_callback(request: Request, db: Session = Depends(get_db)):
+    if _provider_disabled(db, "google_auth_enabled"):
+        return _provider_disabled_redirect()
     try:
         token = await oauth.google.authorize_access_token(request)
     except OAuthError:
@@ -76,7 +88,9 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/microsoft/login")
-async def microsoft_login(request: Request):
+async def microsoft_login(request: Request, db: Session = Depends(get_db)):
+    if _provider_disabled(db, "microsoft_auth_enabled"):
+        return _provider_disabled_redirect()
     redirect_uri = f"{settings.base_url}/api/auth/microsoft/callback"
     # Senza "prompt" Microsoft riusa la sessione SSO del browser e accede
     # subito con l'ultimo account usato, senza mostrare il selettore.
@@ -85,6 +99,8 @@ async def microsoft_login(request: Request):
 
 @router.get("/microsoft/callback")
 async def microsoft_callback(request: Request, db: Session = Depends(get_db)):
+    if _provider_disabled(db, "microsoft_auth_enabled"):
+        return _provider_disabled_redirect()
     try:
         token = await oauth.microsoft.authorize_access_token(request)
     except OAuthError:

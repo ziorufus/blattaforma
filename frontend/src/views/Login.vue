@@ -7,17 +7,20 @@
       <div class="card-body text-center p-4">
         <h1 class="h3 mb-3">Blattaforma</h1>
         <p class="text-muted mb-4">Accedi per continuare.</p>
-        <button class="btn btn-outline-primary w-100 mb-2" @click="loginGoogle">
+        <button v-if="googleEnabled" class="btn btn-outline-primary w-100 mb-2" @click="loginGoogle">
           <i class="bi bi-google me-2"></i>Accedi con Google
         </button>
-        <button class="btn btn-outline-primary w-100" @click="loginMicrosoft">
+        <button v-if="microsoftEnabled" class="btn btn-outline-primary w-100" @click="loginMicrosoft">
           <i class="bi bi-microsoft me-2"></i>Accedi con Microsoft
         </button>
+        <div v-if="!googleEnabled && !microsoftEnabled" class="alert alert-warning mb-0">
+          Nessun metodo di accesso è attualmente abilitato.
+        </div>
       </div>
-      <div class="card-body border-top pt-3" v-if="publicPages.length > 0">
+      <div class="card-body border-top pt-3" v-if="visiblePublicPages.length > 0">
         <p class="text-muted small mb-2">Pagine pubbliche disponibili senza account:</p>
         <ul class="list-unstyled mb-0">
-          <li v-for="p in publicPages" :key="p.path">
+          <li v-for="p in visiblePublicPages" :key="p.path">
             <router-link :to="p.path">{{ p.label }}</router-link>
           </li>
         </ul>
@@ -27,10 +30,11 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { publicPages } from '../router'
 import { useAuthStore } from '../stores/auth'
+import { useConfigStore } from '../stores/config'
 import { useToastStore } from '../stores/toast'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -39,10 +43,16 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const toast = useToastStore()
+const config = useConfigStore()
+
+const googleEnabled = computed(() => config.option('global', 'google_auth_enabled', true))
+const microsoftEnabled = computed(() => config.option('global', 'microsoft_auth_enabled', true))
+const visiblePublicPages = computed(() => publicPages.filter((p) => config.isModuleEnabled(p.module)))
 
 const ERROR_MESSAGES = {
   unauthorized: 'Il tuo account non è registrato su questa piattaforma. Contatta un amministratore.',
   oauth_failed: 'Accesso non riuscito. Riprova.',
+  provider_disabled: 'Questo metodo di accesso è stato disabilitato.',
 }
 
 onMounted(() => {

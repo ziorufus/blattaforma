@@ -23,21 +23,16 @@ class Settings(BaseSettings):
 
     db_path: str = ""
 
-    ollama_max_minutes: int = 25
-
-    # Ogni quanti minuti il worker "leader" rinfresca il keep_alive dei
-    # modelli bloccati in RAM (e ricarica quelli eventualmente caduti).
-    ollama_pin_refresh_minutes: int = 5
+    # Le altre impostazioni del modulo Ollama sono opzioni modificabili
+    # dall'interfaccia di amministrazione (MODULE_OPTIONS in modules/ollama.py).
 
     # Percorso del file lock che elegge l'unico worker che esegue il refresh
     # dei modelli bloccati. Vuoto = backend/ollama_pin_scheduler.lock.
     ollama_pin_scheduler_lock_path: str = ""
 
-    # keep_alive applicato quando un modello viene sbloccato: riporta il runner
-    # da "infinito" a una scadenza normale. Formato Ollama (es. "30m", "1h").
-    ollama_default_keep_alive: str = "30m"
-
-    model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", case_sensitive=False)
+    # extra="ignore": un .env che contiene ancora variabili ormai spostate tra
+    # le opzioni (es. OLLAMA_MAX_MINUTES) non deve impedire l'avvio.
+    model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", case_sensitive=False, extra="ignore")
 
     @property
     def database_url(self) -> str:

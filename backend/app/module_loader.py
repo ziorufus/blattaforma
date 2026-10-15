@@ -7,6 +7,12 @@ A module is a single .py file in this package that defines:
   MODULE_LABEL -- human readable name shown in the frontend menu
   MODULE_ROLES -- list of role strings available for this module
   router       -- a fastapi.APIRouter with the module's endpoints
+
+Optionally:
+  MODULE_OPTIONS -- a pydantic.BaseModel subclass declaring the module's
+                    admin-editable options (see app/options.py)
+
+Every route of a module disabled from the admin options page answers 404.
 """
 
 import importlib
@@ -14,11 +20,13 @@ import logging
 import pkgutil
 import re
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from . import models
+from . import models, options
 from .database import SessionLocal
+from .deps import require_module_enabled
 
 logger = logging.getLogger("blattaforma.modules")
 
@@ -40,6 +48,7 @@ def discover_modules() -> list[dict]:
         label = getattr(mod, "MODULE_LABEL", None)
         roles = getattr(mod, "MODULE_ROLES", None)
         router = getattr(mod, "router", None)
+        module_options = getattr(mod, "MODULE_OPTIONS", None)
 
         if not name or not label or roles is None or router is None:
             logger.warning(
@@ -54,8 +63,24 @@ def discover_modules() -> list[dict]:
             )
             continue
 
+        if name == options.GLOBAL_SCOPE:
+            logger.warning("Skipping module '%s': name reserved for global options", name)
+            continue
+
+        if module_options is not None and not (
+            isinstance(module_options, type) and issubclass(module_options, BaseModel)
+        ):
+            logger.warning("Module '%s': MODULE_OPTIONS is not a pydantic model, ignored", name)
+            module_options = None
+
         manifests.append(
-            {"name": name, "label": label, "roles": list(roles), "router": router}
+            {
+                "name": name,
+                "label": label,
+                "roles": list(roles),
+                "router": router,
+                "options": module_options,
+            }
         )
 
     return manifests
@@ -95,7 +120,10 @@ def load_modules(app: FastAPI) -> None:
             manifest["router"],
             prefix=f"/api/modules/{manifest['name']}",
             tags=[f"module:{manifest['name']}"],
+            dependencies=[Depends(require_module_enabled(manifest["name"]))],
         )
+        if manifest["options"] is not None:
+            options.register_scope(manifest["name"], manifest["options"])
 
     sync_modules_to_db(manifests)
     logger.info("Loaded %d module(s): %s", len(seen_names), ", ".join(sorted(seen_names)) or "-")

@@ -7,11 +7,12 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import models
 from .auth import create_access_token, decode_access_token
 from .config import settings
-from .database import Base, SessionLocal, engine
+from .database import Base, SessionLocal, add_missing_column, engine
 from .module_loader import load_modules
 from .routers import auth as auth_router
 from .routers import groups as groups_router
 from .routers import modules as modules_router
+from .routers import options as options_router
 from .routers import users as users_router
 
 logging.basicConfig(level=logging.INFO)
@@ -50,6 +51,7 @@ async def sliding_token_refresh(request: Request, call_next):
 
 def bootstrap_database() -> None:
     Base.metadata.create_all(bind=engine)
+    add_missing_column("modules", "enabled", "BOOLEAN NOT NULL DEFAULT 1")
 
     db = SessionLocal()
     try:
@@ -75,6 +77,7 @@ app.include_router(auth_router.router)
 app.include_router(users_router.router)
 app.include_router(groups_router.router)
 app.include_router(modules_router.router)
+app.include_router(options_router.router)
 
 
 @app.get("/api/health")

@@ -4,7 +4,8 @@
     <p class="text-muted">
       Elenco dei moduli scoperti dal backend all'avvio. Per assegnare l'accesso a un modulo,
       gestisci i permessi da <router-link to="/admin/users">Utenti</router-link> o
-      <router-link to="/admin/groups">Gruppi</router-link>.
+      <router-link to="/admin/groups">Gruppi</router-link>. Per attivare/disattivare un modulo
+      o modificarne le impostazioni, usa <router-link to="/admin/options">Opzioni</router-link>.
     </p>
 
     <div v-if="loading" class="text-muted">Caricamento...</div>
@@ -14,6 +15,7 @@
           <th>Nome interno</th>
           <th>Nome descrittivo</th>
           <th>Ruoli disponibili</th>
+          <th>Stato</th>
         </tr>
       </thead>
       <tbody>
@@ -23,9 +25,13 @@
           <td>
             <span v-for="r in m.roles" :key="r" class="badge bg-secondary me-1">{{ r }}</span>
           </td>
+          <td>
+            <span v-if="m.enabled" class="badge bg-success">attivo</span>
+            <span v-else class="badge bg-danger">disattivato</span>
+          </td>
         </tr>
         <tr v-if="modules.length === 0">
-          <td colspan="3" class="text-muted">Nessun modulo installato.</td>
+          <td colspan="4" class="text-muted">Nessun modulo installato.</td>
         </tr>
       </tbody>
     </table>

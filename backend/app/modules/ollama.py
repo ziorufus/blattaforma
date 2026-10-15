@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, func
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from .. import models
+from .. import models, options
 from ..config import BASE_DIR, settings
 from ..database import Base, SessionLocal, engine
 from ..datetime_utils import UtcDatetime
@@ -49,6 +49,33 @@ STATUS_TIMEOUT = 5.0
 LOAD_MODEL_TIMEOUT = 1800.0
 UNLOAD_MODEL_TIMEOUT = 30.0
 PULL_MODEL_TIMEOUT = None
+
+
+class OllamaOptions(BaseModel):
+    max_minutes: int = Field(
+        25,
+        ge=0,
+        title="Finestra minima di espulsione (minuti)",
+        description=(
+            "Un utente senza privilegio \"models\" può espellere un modello non bloccato "
+            "solo quando mancano meno di questi minuti alla sua scadenza (expires_at di /api/ps)."
+        ),
+    )
+    pin_refresh_minutes: int = Field(
+        5,
+        ge=1,
+        title="Refresh dei modelli bloccati (minuti)",
+        description="Ogni quanti minuti viene rinfrescato il keep_alive dei modelli bloccati in RAM (e ricaricati quelli caduti).",
+    )
+    default_keep_alive: str = Field(
+        "30m",
+        pattern=r"^-?\d+(\.\d+)?(ms|s|m|h)?$",
+        title="keep_alive allo sblocco",
+        description='keep_alive applicato quando un modello viene sbloccato, in formato Ollama (es. "30m", "1h").',
+    )
+
+
+MODULE_OPTIONS = OllamaOptions
 
 router = APIRouter()
 
@@ -1259,9 +1286,10 @@ async def unload_model(
             if pin is None:
                 expires_at = model_entry.get("expires_at")
                 if expires_at and "models" not in roles:
+                    max_minutes = options.get_options(db, MODULE_NAME).max_minutes
                     until_minutes = (datetime.fromisoformat(expires_at) - datetime.now(timezone.utc)).total_seconds() / 60
-                    if until_minutes >= settings.ollama_max_minutes:
-                        remaining = math.ceil(until_minutes - settings.ollama_max_minutes)
+                    if until_minutes >= max_minutes:
+                        remaining = math.ceil(until_minutes - max_minutes)
                         raise HTTPException(
                             status_code=status.HTTP_400_BAD_REQUEST,
                             detail=f"Il modello può essere smontato solo tra {remaining} minuti",
@@ -1365,6 +1393,7 @@ async def unpin_model(
     pin = _active_pin(db, machine.id, payload.model)
     if pin is None:
         return {"status": "ok"}
+    default_keep_alive = options.get_options(db, MODULE_NAME).default_keep_alive
 
     # Il modello resta in RAM ma torna a scadere: un runner con keep_alive
     # "infinito" va riportato a una scadenza normale con un keep_alive
@@ -1377,7 +1406,7 @@ async def unpin_model(
                 f"http://{machine.ip_address}:{OLLAMA_READ_PORT}/api/generate",
                 json={
                     "model": payload.model,
-                    "keep_alive": settings.ollama_default_keep_alive,
+                    "keep_alive": default_keep_alive,
                     "stream": False,
                 },
                 headers=_auth_header(machine.api_key_read),
@@ -1464,7 +1493,12 @@ def _acquire_scheduler_lock():
 
 
 def _refresh_interval_seconds() -> int:
-    return max(60, settings.ollama_pin_refresh_minutes * 60)
+    try:
+        minutes = options.read_options(MODULE_NAME).pin_refresh_minutes
+    except Exception:
+        logger.exception("Ollama: lettura dell'intervallo di refresh fallita, uso il default")
+        minutes = OllamaOptions().pin_refresh_minutes
+    return max(60, minutes * 60)
 
 
 def _pin_scheduler_loop() -> None:
@@ -1473,11 +1507,14 @@ def _pin_scheduler_loop() -> None:
     while _acquire_scheduler_lock() is None:
         time.sleep(60)
 
-    logger.info("Ollama: scheduler dei modelli bloccati avviato (refresh ogni %d min)", settings.ollama_pin_refresh_minutes)
+    logger.info("Ollama: scheduler dei modelli bloccati avviato")
     time.sleep(10)  # lascia stabilizzare l'avvio
     while True:
         try:
-            _refresh_pinned_models()
+            # Intervallo e stato del modulo si rileggono a ogni giro, così le
+            # modifiche dalla pagina Opzioni valgono senza riavvio.
+            if options.module_enabled(MODULE_NAME):
+                _refresh_pinned_models()
         except Exception:
             logger.exception("Ollama: refresh dei modelli bloccati fallito")
         time.sleep(_refresh_interval_seconds())

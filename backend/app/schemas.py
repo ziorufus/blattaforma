@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, EmailStr
 
 from .datetime_utils import UtcDatetime
@@ -28,6 +30,11 @@ class ModuleOut(BaseModel):
     name: str
     label: str
     roles: list[str]
+    enabled: bool
+
+
+class ModuleEnabledUpdate(BaseModel):
+    enabled: bool
 
 
 class ModuleWithAccessOut(ModuleOut):
@@ -119,6 +126,39 @@ class PermissionsUpdate(BaseModel):
     """Full replacement of the set of (module_name, role) grants."""
 
     permissions: list[ModulePermissionGrant]
+
+
+# ---------- Options ----------
+
+
+class OptionValueUpdate(BaseModel):
+    value: Any
+
+
+class OptionOut(BaseModel):
+    key: str
+    label: str
+    description: str | None = None
+    json_schema: dict[str, Any]
+    public: bool
+    default: Any
+    value: Any
+    is_default: bool
+    updated_at: UtcDatetime | None = None
+    updated_by: str | None = None
+
+
+class OptionScopeOut(BaseModel):
+    scope: str
+    label: str
+    is_module: bool
+    enabled: bool
+    options: list[OptionOut]
+
+
+class PublicConfigOut(BaseModel):
+    options: dict[str, dict[str, Any]]
+    enabled_modules: list[str]
 
 
 GroupDetailOut.model_rebuild()

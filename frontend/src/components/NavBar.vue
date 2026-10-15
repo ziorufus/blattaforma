@@ -34,7 +34,7 @@
               </li>
             </ul>
           </li>
-          <li class="nav-item dropdown" v-if="publicPages.length > 0">
+          <li class="nav-item dropdown" v-if="visiblePublicPages.length > 0">
             <a
               class="nav-link dropdown-toggle"
               href="#"
@@ -45,7 +45,7 @@
               Pagine pubbliche
             </a>
             <ul class="dropdown-menu">
-              <li v-for="p in publicPages" :key="p.path">
+              <li v-for="p in visiblePublicPages" :key="p.path">
                 <router-link class="dropdown-item" :to="p.path">
                   {{ p.label }}
                 </router-link>
@@ -76,6 +76,11 @@
               <li>
                 <router-link class="dropdown-item" to="/admin/modules">
                   Moduli
+                </router-link>
+              </li>
+              <li>
+                <router-link class="dropdown-item" to="/admin/options">
+                  Opzioni
                 </router-link>
               </li>
             </ul>
@@ -112,12 +117,17 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useConfigStore } from '../stores/config'
 import { publicPages } from '../router'
 
 const auth = useAuthStore()
+const config = useConfigStore()
 const router = useRouter()
+
+const visiblePublicPages = computed(() => publicPages.filter((p) => config.isModuleEnabled(p.module)))
 
 function doLogout() {
   auth.logout()

@@ -75,6 +75,38 @@ esplicitamente `Base.metadata.create_all(bind=engine)` (import da
 che i file dei moduli vengano importati; la chiamata è idempotente (crea solo
 le tabelle mancanti), quindi ripeterla non ha effetti collaterali.
 
+### Opzioni del modulo (facoltative)
+
+Un modulo può dichiarare impostazioni modificabili dagli admin in
+Amministrazione → Opzioni esportando `MODULE_OPTIONS`, un modello Pydantic:
+tipo, default, etichetta (`title`) e descrizione stanno nel codice, nel DB
+(tabella `options`) finiscono solo i valori modificati.
+
+```python
+from pydantic import BaseModel, Field
+from .. import options
+
+class MyOptions(BaseModel):
+    max_items: int = Field(10, ge=1, title="Elementi massimi", description="...")
+
+MODULE_OPTIONS = MyOptions
+
+@router.get("/qualcosa")
+def endpoint(db: Session = Depends(get_db), roles=Depends(require_module_role(MODULE_NAME))):
+    max_items = options.get_options(db, MODULE_NAME).max_items
+```
+
+Le opzioni si leggono **sempre** dal DB (nessuna cache: il backend gira con
+più worker). Nei thread in background usare `options.read_options(MODULE_NAME)`,
+che apre una sessione propria. Un'opzione dichiarata con
+`json_schema_extra={"public": True}` è leggibile anche senza login da
+`/api/options/public` (nel frontend: `useConfigStore().option(scope, key)`).
+
+Un admin può disattivare un modulo dalla stessa pagina: tutte le sue rotte
+(anche quelle pubbliche) rispondono 404 e spariscono dal frontend. Un modulo
+con thread in background deve controllare `options.module_enabled(MODULE_NAME)`
+a ogni giro del loop.
+
 Esempio minimo completo (modulo reale già presente, `hello-world`):
 
 ```python
