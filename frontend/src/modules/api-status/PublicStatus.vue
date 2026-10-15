@@ -49,6 +49,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import api from '../../api/axios'
+import { copyToClipboard } from '../../utils/clipboard'
 import { statusBadgeClass, statusLabel, formatDateTime } from './statusBadge'
 
 const POLL_INTERVAL_MS = 20000
@@ -61,23 +62,7 @@ const copiedName = ref(null)
 let copiedTimer = null
 
 async function copyUrl(target) {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(target.url)
-    } else {
-      // Fallback per contesti non sicuri (HTTP), dove navigator.clipboard non è disponibile
-      const ta = document.createElement('textarea')
-      ta.value = target.url
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      document.execCommand('copy')
-      document.body.removeChild(ta)
-    }
-  } catch (e) {
-    return
-  }
+  if (!(await copyToClipboard(target.url))) return
   copiedName.value = target.name
   clearTimeout(copiedTimer)
   copiedTimer = setTimeout(() => { copiedName.value = null }, 1500)

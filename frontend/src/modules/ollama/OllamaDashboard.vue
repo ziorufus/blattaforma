@@ -329,7 +329,21 @@
                     {{ k.name }}
                   </router-link>
                 </td>
-                <td><code>{{ k.revealed ? k.plainValue : k.masked_value }}</code></td>
+                <td>
+                  <div class="d-flex align-items-start">
+                    <code>{{ k.revealed ? k.plainValue : k.masked_value }}</code>
+                    <button
+                      type="button"
+                      class="btn btn-link btn-sm p-0 ms-1 lh-1 text-muted"
+                      :title="copiedKeyId === k.id ? 'Copiato!' : 'Copia chiave'"
+                      :aria-label="`Copia la chiave ${k.name}`"
+                      :disabled="k.copying"
+                      @click="copyKey(k)"
+                    >
+                      <i class="bi" :class="copiedKeyId === k.id ? 'bi-check-lg text-success' : 'bi-clipboard'"></i>
+                    </button>
+                  </div>
+                </td>
                 <td>
                   <span class="badge" :class="k.active ? 'text-bg-success' : 'text-bg-secondary'">
                     {{ k.active ? 'Attiva' : 'Disattivata' }}
@@ -382,6 +396,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '../../api/axios'
 import { useAuthStore } from '../../stores/auth'
 import { useToastStore } from '../../stores/toast'
+import { copyToClipboard } from '../../utils/clipboard'
 import { API_BASE_URL } from '../../config'
 
 const auth = useAuthStore()
@@ -413,6 +428,8 @@ const CONTEXT_SIZE_OPTIONS = [
 
 const machines = ref([])
 const myKeys = ref([])
+const copiedKeyId = ref(null)
+let copiedTimer = null
 const loading = ref(true)
 let autoRefreshTimer = null
 
@@ -527,6 +544,7 @@ async function loadMyKeys() {
       ...k,
       revealed: false,
       revealing: false,
+      copying: false,
       regenerating: false,
       deactivating: false,
       plainValue: null,
@@ -536,19 +554,39 @@ async function loadMyKeys() {
   }
 }
 
+async function fetchPlainValue(k) {
+  if (!k.plainValue) {
+    const { data } = await api.get(`/api/modules/ollama/keys/mine/${k.id}/reveal`)
+    k.plainValue = data.value
+  }
+  return k.plainValue
+}
+
+async function copyKey(k) {
+  let value
+  k.copying = true
+  try {
+    value = await fetchPlainValue(k)
+  } catch (e) {
+    toast.apiError(e, 'Impossibile recuperare la chiave.')
+    return
+  } finally {
+    k.copying = false
+  }
+  if (!(await copyToClipboard(value))) return
+  copiedKeyId.value = k.id
+  clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => { copiedKeyId.value = null }, 1500)
+}
+
 async function toggleReveal(k) {
   if (k.revealed) {
     k.revealed = false
     return
   }
-  if (k.plainValue) {
-    k.revealed = true
-    return
-  }
   k.revealing = true
   try {
-    const { data } = await api.get(`/api/modules/ollama/keys/mine/${k.id}/reveal`)
-    k.plainValue = data.value
+    await fetchPlainValue(k)
     k.revealed = true
   } catch (e) {
     toast.apiError(e, 'Impossibile recuperare la chiave.')
@@ -717,6 +755,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  clearTimeout(copiedTimer)
   if (autoRefreshTimer) clearInterval(autoRefreshTimer)
 })
 </script>

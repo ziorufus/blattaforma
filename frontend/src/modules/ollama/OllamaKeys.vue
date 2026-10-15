@@ -46,7 +46,21 @@
                 {{ k.active ? 'Attivo' : 'Disattivo' }}
               </span>
             </td>
-            <td><code>{{ k.revealed ? k.plainValue : k.masked_value }}</code></td>
+            <td>
+              <div class="d-flex align-items-start">
+                <code>{{ k.revealed ? k.plainValue : k.masked_value }}</code>
+                <button
+                  type="button"
+                  class="btn btn-link btn-sm p-0 ms-1 lh-1 text-muted"
+                  :title="copiedKeyId === k.id ? 'Copiato!' : 'Copia chiave'"
+                  :aria-label="`Copia la chiave ${k.name}`"
+                  :disabled="k.copying"
+                  @click="copyKey(k)"
+                >
+                  <i class="bi" :class="copiedKeyId === k.id ? 'bi-check-lg text-success' : 'bi-clipboard'"></i>
+                </button>
+              </div>
+            </td>
             <td class="text-end nobr">
               <button
                 class="btn btn-sm btn-outline-secondary me-2"
@@ -155,18 +169,21 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Modal } from 'bootstrap'
 import api from '../../api/axios'
 import { useAuthStore } from '../../stores/auth'
 import { useToastStore } from '../../stores/toast'
+import { copyToClipboard } from '../../utils/clipboard'
 
 const auth = useAuthStore()
 const toast = useToastStore()
 const router = useRouter()
 
 const keys = ref([])
+const copiedKeyId = ref(null)
+let copiedTimer = null
 const availableMachines = ref([])
 const assignableUsers = ref([])
 const loading = ref(true)
@@ -199,6 +216,7 @@ async function loadKeys() {
       ...k,
       revealed: false,
       revealing: false,
+      copying: false,
       plainValue: null,
     }))
   } catch (e) {
@@ -247,19 +265,39 @@ function openCreate() {
   modalInstance.show()
 }
 
+async function fetchPlainValue(k) {
+  if (!k.plainValue) {
+    const { data } = await api.get(`/api/modules/ollama/keys/${k.id}`)
+    k.plainValue = data.value
+  }
+  return k.plainValue
+}
+
+async function copyKey(k) {
+  let value
+  k.copying = true
+  try {
+    value = await fetchPlainValue(k)
+  } catch (e) {
+    toast.apiError(e, 'Impossibile recuperare la chiave.')
+    return
+  } finally {
+    k.copying = false
+  }
+  if (!(await copyToClipboard(value))) return
+  copiedKeyId.value = k.id
+  clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => { copiedKeyId.value = null }, 1500)
+}
+
 async function toggleReveal(k) {
   if (k.revealed) {
     k.revealed = false
     return
   }
-  if (k.plainValue) {
-    k.revealed = true
-    return
-  }
   k.revealing = true
   try {
-    const { data } = await api.get(`/api/modules/ollama/keys/${k.id}`)
-    k.plainValue = data.value
+    await fetchPlainValue(k)
     k.revealed = true
   } catch (e) {
     toast.apiError(e, 'Impossibile recuperare la chiave.')
@@ -336,6 +374,7 @@ onMounted(async () => {
   modalInstance = new Modal(modalEl.value)
   await Promise.all([loadKeys(), loadMachines(), loadAssignableUsers()])
 })
+onUnmounted(() => clearTimeout(copiedTimer))
 </script>
 
 <style scoped>
