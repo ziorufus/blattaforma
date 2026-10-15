@@ -38,8 +38,8 @@
               <div class="col-lg-5">
                 <div class="fw-semibold">
                   {{ o.label }}
-                  <span v-if="o.public" class="badge bg-info text-dark ms-1">pubblica</span>
-                  <span v-if="!o.is_default" class="badge bg-primary ms-1">modificata</span>
+                  <span v-if="o.public" class="badge bg-info text-dark ms-1"><i class="bi bi-globe"></i></span>
+                  <span v-if="!o.is_default" class="badge bg-primary ms-1"><i class="bi bi-pencil"></i></span>
                 </div>
                 <div class="small text-muted"><code>{{ o.key }}</code></div>
                 <div v-if="o.description" class="small text-muted mt-1">{{ o.description }}</div>
