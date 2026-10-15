@@ -10,6 +10,7 @@ backend/*.lock
 frontend/node_modules/
 frontend/dist/
 frontend/.env
+frontend/public/config.js
 frontend/package-lock.json
 
 # Editors / OS

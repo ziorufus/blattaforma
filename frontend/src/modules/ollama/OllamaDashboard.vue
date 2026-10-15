@@ -382,6 +382,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '../../api/axios'
 import { useAuthStore } from '../../stores/auth'
 import { useToastStore } from '../../stores/toast'
+import { API_BASE_URL } from '../../config'
 
 const auth = useAuthStore()
 const toast = useToastStore()
@@ -654,8 +655,7 @@ async function pullModel(m) {
   m.pullPct = 0
   m.pullStatus = ''
   try {
-    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-    const resp = await fetch(`${base}/api/modules/ollama/machines/${m.id}/pull`, {
+    const resp = await fetch(`${API_BASE_URL}/api/modules/ollama/machines/${m.id}/pull`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -36,8 +36,7 @@ import { publicPages } from '../router'
 import { useAuthStore } from '../stores/auth'
 import { useConfigStore } from '../stores/config'
 import { useToastStore } from '../stores/toast'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+import { API_BASE_URL } from '../config'
 
 const route = useRoute()
 const router = useRouter()
@@ -68,11 +67,11 @@ onMounted(() => {
 })
 
 function loginGoogle() {
-  window.location.href = `${API_BASE}/api/auth/google/login`
+  window.location.href = `${API_BASE_URL}/api/auth/google/login`
 }
 
 function loginMicrosoft() {
-  window.location.href = `${API_BASE}/api/auth/microsoft/login`
+  window.location.href = `${API_BASE_URL}/api/auth/microsoft/login`
 }
 </script>
 
