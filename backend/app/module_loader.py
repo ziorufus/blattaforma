@@ -9,8 +9,12 @@ A module is a single .py file in this package that defines:
   router       -- a fastapi.APIRouter with the module's endpoints
 
 Optionally:
-  MODULE_OPTIONS -- a pydantic.BaseModel subclass declaring the module's
-                    admin-editable options (see app/options.py)
+  MODULE_OPTIONS      -- a pydantic.BaseModel subclass declaring the module's
+                         admin-editable options (see app/options.py)
+  MODULE_PUBLIC_PAGES -- {page_key: label} for the pages in the frontend
+                         public.js (page_key = the route `name`); each one
+                         gets an admin on/off switch. Guard the endpoints
+                         feeding a page with deps.require_public_page.
 
 Every route of a module disabled from the admin options page answers 404.
 """
@@ -31,6 +35,7 @@ from .deps import require_module_enabled
 logger = logging.getLogger("blattaforma.modules")
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+PAGE_KEY_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 def discover_modules() -> list[dict]:
@@ -49,6 +54,7 @@ def discover_modules() -> list[dict]:
         roles = getattr(mod, "MODULE_ROLES", None)
         router = getattr(mod, "router", None)
         module_options = getattr(mod, "MODULE_OPTIONS", None)
+        public_pages = getattr(mod, "MODULE_PUBLIC_PAGES", None) or {}
 
         if not name or not label or roles is None or router is None:
             logger.warning(
@@ -72,6 +78,17 @@ def discover_modules() -> list[dict]:
         ):
             logger.warning("Module '%s': MODULE_OPTIONS is not a pydantic model, ignored", name)
             module_options = None
+
+        if not isinstance(public_pages, dict):
+            logger.warning("Module '%s': MODULE_PUBLIC_PAGES is not a dict, ignored", name)
+            public_pages = {}
+        public_pages = dict(public_pages)
+        for page in [p for p in public_pages if not PAGE_KEY_RE.match(str(p))]:
+            logger.warning(
+                "Module '%s': public page key '%s' must match %s, ignored", name, page, PAGE_KEY_RE.pattern
+            )
+            del public_pages[page]
+        module_options = options.with_public_pages(name, module_options, public_pages)
 
         manifests.append(
             {

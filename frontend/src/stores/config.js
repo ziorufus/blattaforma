@@ -30,5 +30,11 @@ export const useConfigStore = defineStore('config', {
     isModuleEnabled(name) {
       return this.enabledModules === null || this.enabledModules.includes(name)
     },
+
+    // Una pagina non dichiarata in MODULE_PUBLIC_PAGES non ha l'opzione:
+    // resta visibile (default true), così l'errore si nota subito.
+    isPublicPageEnabled(module, page) {
+      return this.isModuleEnabled(module) && this.option(module, `public_page_${page}`, true) !== false
+    },
   },
 })

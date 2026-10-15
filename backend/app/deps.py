@@ -5,7 +5,14 @@ from . import crud, models, options
 from .auth import decode_access_token
 from .database import get_db
 
-__all__ = ["get_db", "get_current_user", "require_admin", "require_module_role", "require_module_enabled"]
+__all__ = [
+    "get_db",
+    "get_current_user",
+    "require_admin",
+    "require_module_role",
+    "require_module_enabled",
+    "require_public_page",
+]
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.User:
@@ -58,5 +65,16 @@ def require_module_enabled(module_name: str):
     def dependency(db: Session = Depends(get_db)) -> None:
         if not options.is_module_enabled(db, module_name):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Modulo disattivato")
+
+    return dependency
+
+
+def require_public_page(module_name: str, page: str):
+    """Da applicare agli endpoint pubblici che alimentano una pagina pubblica
+    dichiarata in MODULE_PUBLIC_PAGES: se un admin l'ha disattivata, 404."""
+
+    def dependency(db: Session = Depends(get_db)) -> None:
+        if not options.is_public_page_enabled(db, module_name, page):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pagina pubblica disattivata")
 
     return dependency

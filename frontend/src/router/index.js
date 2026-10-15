@@ -33,6 +33,8 @@ for (const path in moduleManifests) {
 // Auto-discover unauthenticated pages under src/modules/<name>/public.js
 // (same manifest shape as index.js). Anything exported there is reachable
 // without login, so a module opts in explicitly by creating this file.
+// Each route `name` must also be a key of the backend MODULE_PUBLIC_PAGES,
+// which gives admins an on/off switch for the page.
 const publicManifests = import.meta.glob('../modules/*/public.js', { eager: true })
 
 const publicRoutes = []
@@ -41,13 +43,14 @@ for (const path in publicManifests) {
   const manifest = publicManifests[path].default
   for (const r of manifest.routes) {
     const fullPath = `/public/${manifest.name}/${r.path}`.replace(/\/+$/, '')
+    const page = r.name || r.path || 'index'
     publicRoutes.push({
       path: fullPath,
-      name: `public-${manifest.name}-${r.name || r.path || 'index'}`,
+      name: `public-${manifest.name}-${page}`,
       component: r.component,
-      meta: { requiresAuth: false, module: manifest.name },
+      meta: { requiresAuth: false, module: manifest.name, publicPage: page },
     })
-    publicPages.push({ path: fullPath, label: r.label || manifest.name, module: manifest.name })
+    publicPages.push({ path: fullPath, label: r.label || manifest.name, module: manifest.name, page })
   }
 }
 
@@ -104,7 +107,12 @@ router.beforeEach((to) => {
 
   // Un modulo disattivato sparisce per tutti, admin compresi, pagine
   // pubbliche incluse (il backend risponde 404 alle sue API).
-  if (to.meta.module && !useConfigStore().isModuleEnabled(to.meta.module)) {
+  const config = useConfigStore()
+  if (
+    to.meta.module &&
+    (!config.isModuleEnabled(to.meta.module) ||
+      (to.meta.publicPage && !config.isPublicPageEnabled(to.meta.module, to.meta.publicPage)))
+  ) {
     return { name: 'not-found', params: { pathMatch: to.path.substring(1).split('/') } }
   }
 

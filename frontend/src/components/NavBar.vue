@@ -127,7 +127,7 @@ const auth = useAuthStore()
 const config = useConfigStore()
 const router = useRouter()
 
-const visiblePublicPages = computed(() => publicPages.filter((p) => config.isModuleEnabled(p.module)))
+const visiblePublicPages = computed(() => publicPages.filter((p) => config.isPublicPageEnabled(p.module, p.page)))
 
 function doLogout() {
   auth.logout()

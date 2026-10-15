@@ -158,6 +158,11 @@ che apre una sessione propria. Un'opzione dichiarata con
 `json_schema_extra={"public": True}` è leggibile anche senza login da
 `/api/options/public` (nel frontend: `useConfigStore().option(scope, key)`).
 
+Le pagine pubbliche (`public.js`) vanno dichiarate anche nel backend con
+`MODULE_PUBLIC_PAGES = {"<name della rotta>": "Etichetta"}`: ognuna riceve un
+interruttore in Opzioni (attivo di default), e gli endpoint che la alimentano
+vanno protetti con `Depends(require_public_page(MODULE_NAME, "<name>"))`.
+
 Un admin può disattivare un modulo dalla stessa pagina: tutte le sue rotte
 (anche quelle pubbliche) rispondono 404 e spariscono dal frontend. Un modulo
 con thread in background deve controllare `options.module_enabled(MODULE_NAME)`

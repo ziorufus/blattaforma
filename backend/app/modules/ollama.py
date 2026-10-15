@@ -29,13 +29,14 @@ from .. import models, options
 from ..config import BASE_DIR, settings
 from ..database import Base, SessionLocal, engine
 from ..datetime_utils import UtcDatetime
-from ..deps import get_current_user, get_db, require_module_role
+from ..deps import get_current_user, get_db, require_module_role, require_public_page
 
 logger = logging.getLogger("blattaforma.modules.ollama")
 
 MODULE_NAME = "ollama"
 MODULE_LABEL = "Ollama"
 MODULE_ROLES = ["machines", "models", "standard"]
+MODULE_PUBLIC_PAGES = {"macchine": "Macchine Ollama"}
 
 OLLAMA_READ_PORT = 11435
 OLLAMA_WRITE_PORT = 11436
@@ -1078,7 +1079,11 @@ async def _public_machine_status(client: httpx.AsyncClient, machine: OllamaMachi
     return out
 
 
-@router.get("/public/machines", response_model=list[PublicMachineOut])
+@router.get(
+    "/public/machines",
+    response_model=list[PublicMachineOut],
+    dependencies=[Depends(require_public_page(MODULE_NAME, "macchine"))],
+)
 async def list_public_machines(db: Session = Depends(get_db)):
     machines = db.query(OllamaMachine).order_by(OllamaMachine.id).all()
     async with httpx.AsyncClient(timeout=STATUS_TIMEOUT) as client:

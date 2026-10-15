@@ -47,7 +47,7 @@ const config = useConfigStore()
 
 const googleEnabled = computed(() => config.option('global', 'google_auth_enabled', true))
 const microsoftEnabled = computed(() => config.option('global', 'microsoft_auth_enabled', true))
-const visiblePublicPages = computed(() => publicPages.filter((p) => config.isModuleEnabled(p.module)))
+const visiblePublicPages = computed(() => publicPages.filter((p) => config.isPublicPageEnabled(p.module, p.page)))
 
 const ERROR_MESSAGES = {
   unauthorized: 'Il tuo account non è registrato su questa piattaforma. Contatta un amministratore.',

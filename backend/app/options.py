@@ -20,7 +20,7 @@ letture su SQLite costano poco, quindi si legge sempre dal DB.
 import logging
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, create_model
 from sqlalchemy.orm import Session
 
 from . import models
@@ -29,6 +29,10 @@ from .database import SessionLocal
 logger = logging.getLogger("blattaforma.options")
 
 GLOBAL_SCOPE = "global"
+
+# Ogni pagina pubblica dichiarata da un modulo (MODULE_PUBLIC_PAGES) diventa
+# un'opzione booleana pubblica del modulo: `public_page_<chiave>`.
+PUBLIC_PAGE_PREFIX = "public_page_"
 
 
 class GlobalOptions(BaseModel):
@@ -55,6 +59,29 @@ class UnknownOptionError(KeyError):
 
 def register_scope(scope: str, schema: type[BaseModel]) -> None:
     _schemas[scope] = schema
+
+
+def with_public_pages(
+    scope: str, schema: type[BaseModel] | None, pages: dict[str, str]
+) -> type[BaseModel] | None:
+    """Estende lo schema delle opzioni di un modulo con un interruttore per
+    ciascuna pagina pubblica (attiva di default). Le chiavi di `pages` sono i
+    `name` delle rotte dichiarate nel public.js del frontend."""
+    if not pages:
+        return schema
+    fields = {
+        f"{PUBLIC_PAGE_PREFIX}{page}": (
+            bool,
+            Field(
+                True,
+                title=f"Pagina pubblica: {label}",
+                description=f"Rende visibile senza login la pagina /public/{scope}/... e i dati che la alimentano.",
+                json_schema_extra={"public": True},
+            ),
+        )
+        for page, label in pages.items()
+    }
+    return create_model(f"{scope}_options", __base__=schema or BaseModel, **fields)
 
 
 def get_schema(scope: str) -> type[BaseModel] | None:
@@ -189,6 +216,12 @@ def public_options(db: Session) -> dict[str, dict[str, Any]]:
 def is_module_enabled(db: Session, module_name: str) -> bool:
     module = db.query(models.Module).filter(models.Module.name == module_name).first()
     return module is not None and module.enabled
+
+
+def is_public_page_enabled(db: Session, module_name: str, page: str) -> bool:
+    if not is_module_enabled(db, module_name):
+        return False
+    return bool(getattr(get_options(db, module_name), f"{PUBLIC_PAGE_PREFIX}{page}"))
 
 
 def module_enabled(module_name: str) -> bool:

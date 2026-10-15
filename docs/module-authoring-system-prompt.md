@@ -185,6 +185,22 @@ né `Depends(get_current_user)` — vedi `GET /public` del modulo `api-status`
 come riferimento). Non esporre mai dati sensibili o azioni di scrittura su
 un endpoint pubblico.
 
+Ogni pagina pubblica va dichiarata anche nel file backend del modulo, con
+chiave uguale al `name` della rotta in `public.js`:
+
+```python
+MODULE_PUBLIC_PAGES = {"status": "Stato dei servizi"}
+
+@router.get("/public", dependencies=[Depends(require_public_page(MODULE_NAME, "status"))])
+def list_public_targets(...): ...
+```
+
+Per ogni pagina dichiarata compare un interruttore (attivo di default) in
+Amministrazione → Opzioni, salvato come opzione pubblica
+`public_page_<chiave>` del modulo. Se è spento, la pagina sparisce dal
+frontend e gli endpoint protetti con `require_public_page` (da `app.deps`)
+rispondono 404: applicarla a **tutti** gli endpoint che alimentano la pagina.
+
 Se il modulo ha ruoli diversi con UI/dati diversi, due pattern possibili:
 
 - **Lato backend** (preferito quando i dati differiscono per contenuto, non

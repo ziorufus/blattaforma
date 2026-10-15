@@ -26,13 +26,14 @@ from .. import options
 from ..config import BASE_DIR
 from ..database import Base, SessionLocal, engine
 from ..datetime_utils import UtcDatetime
-from ..deps import get_db, require_module_role
+from ..deps import get_db, require_module_role, require_public_page
 
 logger = logging.getLogger("blattaforma.api_status")
 
 MODULE_NAME = "api-status"
 MODULE_LABEL = "API Status"
 MODULE_ROLES = ["user", "manager"]
+MODULE_PUBLIC_PAGES = {"status": "Stato dei servizi"}
 
 router = APIRouter()
 
@@ -143,7 +144,11 @@ def list_targets(
     return db.query(ApiStatusTarget).order_by(ApiStatusTarget.name).all()
 
 
-@router.get("/public", response_model=list[PublicTargetOut])
+@router.get(
+    "/public",
+    response_model=list[PublicTargetOut],
+    dependencies=[Depends(require_public_page(MODULE_NAME, "status"))],
+)
 def list_public_targets(db: Session = Depends(get_db)):
     return (
         db.query(ApiStatusTarget)
