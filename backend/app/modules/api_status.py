@@ -112,6 +112,7 @@ class PublicTargetOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     name: str
+    url: str
     enabled: bool
     last_checked_at: UtcDatetime | None
     last_status: str

@@ -10,26 +10,39 @@
     <div v-if="loading" class="text-muted">Caricamento...</div>
     <div v-else-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-else-if="targets.length === 0" class="text-muted">Nessuna API pubblicata.</div>
-    <ul v-else class="list-group">
-      <li
-        v-for="t in targets"
-        :key="t.name"
-        class="list-group-item d-flex justify-content-between align-items-center"
-      >
-        <div>
-          <div class="fw-semibold">{{ t.name }}</div>
-          <div class="text-muted small">{{ formatDateTime(t.last_checked_at) }}</div>
-        </div>
-        <div class="text-end">
-          <span class="badge" :class="statusBadgeClass(t.last_status)">
-            {{ statusLabel(t.last_status) }}
-          </span>
-          <div v-if="t.last_response_time_ms != null" class="text-muted small mt-1">
-            {{ t.last_response_time_ms }} ms
+    <div v-else class="row g-2">
+      <div v-for="t in targets" :key="t.name" class="col-12 col-lg-6">
+        <div class="card h-100">
+          <div class="card-body py-2 px-3 d-flex justify-content-between align-items-start">
+            <div class="me-3 text-break">
+              <div class="fw-semibold">{{ t.name }}</div>
+              <div class="small d-flex align-items-start">
+                <code>{{ t.url }}</code>
+                <button
+                  type="button"
+                  class="btn btn-link btn-sm p-0 ms-1 lh-1 text-muted"
+                  :title="copiedName === t.name ? 'Copiato!' : 'Copia URL'"
+                  :aria-label="`Copia URL di ${t.name}`"
+                  @click="copyUrl(t)"
+                >
+                  <i class="bi" :class="copiedName === t.name ? 'bi-check-lg text-success' : 'bi-clipboard'"></i>
+                </button>
+              </div>
+              <div class="text-muted meta">
+                Ultimo controllo: {{ formatDateTime(t.last_checked_at) }}
+                -
+                {{ t.last_response_time_ms != null ? `${t.last_response_time_ms} ms` : '-' }}
+              </div>
+            </div>
+            <div class="text-end text-nowrap">
+              <span class="badge" :class="statusBadgeClass(t.last_status)">
+                {{ statusLabel(t.last_status) }}
+              </span>
+            </div>
           </div>
         </div>
-      </li>
-    </ul>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -44,6 +57,31 @@ const targets = ref([])
 const loading = ref(true)
 const error = ref('')
 let pollTimer = null
+const copiedName = ref(null)
+let copiedTimer = null
+
+async function copyUrl(target) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(target.url)
+    } else {
+      // Fallback per contesti non sicuri (HTTP), dove navigator.clipboard non è disponibile
+      const ta = document.createElement('textarea')
+      ta.value = target.url
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+  } catch (e) {
+    return
+  }
+  copiedName.value = target.name
+  clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => { copiedName.value = null }, 1500)
+}
 
 async function loadTargets({ silent = false } = {}) {
   if (!silent) loading.value = true
@@ -65,5 +103,12 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  clearTimeout(copiedTimer)
 })
 </script>
+
+<style scoped>
+.meta {
+  font-size: 0.75rem;
+}
+</style>
